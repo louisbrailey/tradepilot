@@ -1,0 +1,24 @@
+.DS_Store
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+__pycache__/
+.env
+*.pem
+*.key
+test-build/
+runtime/
+*.sqlite3*
+webull-tokens/
+private-config.json
+
+# Local developer tooling and private machine state
+.toolkit-runs/
+.env
+.env.*
+!.env.example
+!.env.worker.example
+*.pem
+*.key
+.DS_Store

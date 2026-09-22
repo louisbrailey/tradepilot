@@ -1,0 +1,1821 @@
+{
+  "all_expected_symbols_evaluated": true,
+  "cross_symbol_date_sets_identical": true,
+  "evaluated_at": "2026-09-12T18:24:21.823723+00:00",
+  "implementation_sha256": {
+    "evaluate-strategies.py": "a591366a1c67bad629f50b35d6cdfedba04158d4d624b1d0b511c9eeea692631",
+    "research.py": "5d772759acd137162d3e770d7689b97bcb3e81bd853f5ae258cf2301707642a2"
+  },
+  "protocol": {
+    "benchmark": "Same-symbol buy-and-hold price return, identical initial/final dates and per-side costs; dividends excluded.",
+    "capital": "Independent $10,000 start per symbol/stage/fold/scenario; fractional long/cash positions, no leverage or interest.",
+    "costs_bps_per_side": [
+      0,
+      10,
+      25,
+      50
+    ],
+    "execution": "Previous close versus SMA of preceding closes; next daily bar open; forced liquidation at final close; fixed cost on both sides.",
+    "final_holdout": "Evaluate every train-selected window once, even when validation fails; do not tune from final results. Replay is labeled previously observed.",
+    "minimum_bars": 500,
+    "requested_end": "2026-09-11",
+    "requested_start": "2022-01-01",
+    "selection": "Highest mean return across three contiguous folds in the latter half of training; ties prefer shorter window. No validation or holdout selection.",
+    "split": [
+      0.6,
+      0.2,
+      0.2
+    ],
+    "symbols": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "TLT",
+      "GLD",
+      "AAPL",
+      "MSFT"
+    ],
+    "validation_gate": "Excess price return > 0, drawdown <= same-symbol benchmark drawdown, and at least two fills at 10 bps per side. Research screening only.",
+    "version": "sma-multistage-v1",
+    "windows": [
+      10,
+      20,
+      50
+    ]
+  },
+  "protocol_sha256": "1420f3748daedcd5f892d4d4a4be404ceb2959795094ab511fd10277bb9b2cf0",
+  "results": {
+    "AAPL": {
+      "available": true,
+      "evaluation": {
+        "final_holdout": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 13.822984730423837,
+            "benchmark_price_return_pct": 30.21268092440024,
+            "excess_return_pct": -6.967448820824831,
+            "fills": 20,
+            "from": 1759464000000,
+            "max_drawdown_pct": 10.911804221067667,
+            "return_pct": 23.245232103575407,
+            "to": 1789099200000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 13.822984730423837,
+              "benchmark_price_return_pct": 30.473366972296944,
+              "fills": 20,
+              "from": 1759464000000,
+              "max_drawdown_pct": 10.733449474763535,
+              "return_pct": 25.734951782209613,
+              "to": 1789099200000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 13.822984730423837,
+              "benchmark_price_return_pct": 30.21268092440024,
+              "fills": 20,
+              "from": 1759464000000,
+              "max_drawdown_pct": 10.911804221067667,
+              "return_pct": 23.245232103575407,
+              "to": 1789099200000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 13.822984730423837,
+              "benchmark_price_return_pct": 29.822626987397705,
+              "fills": 20,
+              "from": 1759464000000,
+              "max_drawdown_pct": 11.187264560691535,
+              "return_pct": 19.602773364746785,
+              "to": 1789099200000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 13.822984730423848,
+              "benchmark_price_return_pct": 29.17512451486115,
+              "fills": 20,
+              "from": 1759464000000,
+              "max_drawdown_pct": 12.2523107743436,
+              "return_pct": 13.76959431803364,
+              "to": 1789099200000
+            }
+          },
+          "end_date": "2026-09-11",
+          "start_date": "2025-10-03",
+          "start_index": 941,
+          "stop_index_exclusive": 1177
+        },
+        "integrity_checks": {
+          "chronological_nonoverlap": true,
+          "first_holdout_decision_invariant_to_current_and_future_prices": true,
+          "independent_return_and_benchmark_reconciliation": true,
+          "training_invariant_to_all_future_prices": true,
+          "validation_invariant_to_holdout_prices": true
+        },
+        "locked_selection_sha256": "2f309f1de735ad88c0719e3484b97e7395152d7ad80c2e2f14093481d6ad0763",
+        "maximum_reconciliation_error_percentage_points": 1.1013412404281553e-13,
+        "training": {
+          "candidates": {
+            "10": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 15.047085772461188,
+                  "benchmark_price_return_pct": 5.493018190043464,
+                  "fills": 20,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 12.768086421592994,
+                  "return_pct": 2.4364849958329327,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 16.712937257079407,
+                  "benchmark_price_return_pct": -3.459265321438909,
+                  "fills": 22,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 9.779867719665237,
+                  "return_pct": 0.3585489636608541,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 11.749425091559495,
+                  "benchmark_price_return_pct": 25.537716576146696,
+                  "fills": 20,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 6.136070001062288,
+                  "return_pct": 9.212694038230973,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 4.002575999241587,
+              "worst_fold_drawdown_pct": 12.768086421592994
+            },
+            "20": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 15.047085772461188,
+                  "benchmark_price_return_pct": 5.493018190043464,
+                  "fills": 8,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 6.562510780322728,
+                  "return_pct": 12.149351051381597,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 16.712937257079407,
+                  "benchmark_price_return_pct": -3.459265321438909,
+                  "fills": 18,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 13.831967274174206,
+                  "return_pct": -8.717498030951687,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 11.749425091559495,
+                  "benchmark_price_return_pct": 25.537716576146696,
+                  "fills": 8,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 10.054334710371126,
+                  "return_pct": 18.8715405752933,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 7.434464531907737,
+              "worst_fold_drawdown_pct": 13.831967274174206
+            },
+            "50": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 15.047085772461188,
+                  "benchmark_price_return_pct": 5.493018190043464,
+                  "fills": 8,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 16.114308925960852,
+                  "return_pct": -0.3260434718733496,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 16.712937257079407,
+                  "benchmark_price_return_pct": -3.459265321438909,
+                  "fills": 8,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 14.452234134136454,
+                  "return_pct": -9.86751332892809,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 11.749425091559495,
+                  "benchmark_price_return_pct": 25.537716576146696,
+                  "fills": 8,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 13.89747610050771,
+                  "return_pct": 13.792472715567472,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 1.199638638255344,
+              "worst_fold_drawdown_pct": 16.114308925960852
+            }
+          },
+          "fold_boundaries": [
+            353,
+            470,
+            588,
+            706
+          ],
+          "selected_window": 20,
+          "training_stop_exclusive": 706
+        },
+        "validation": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 33.433711682495556,
+            "benchmark_price_return_pct": 11.581987018981565,
+            "excess_return_pct": -12.50609316507979,
+            "fills": 24,
+            "from": 1729742400000,
+            "max_drawdown_pct": 26.231277335559,
+            "return_pct": -0.9241061460982247,
+            "to": 1759377600000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 33.433711682495556,
+              "benchmark_price_return_pct": 11.805374380380918,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 25.041484415115846,
+              "return_pct": 1.482479622770727,
+              "to": 1759377600000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 33.433711682495556,
+              "benchmark_price_return_pct": 11.581987018981565,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 26.231277335559,
+              "return_pct": -0.9241061460982247,
+              "to": 1759377600000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 33.433711682495556,
+              "benchmark_price_return_pct": 11.247741590453808,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 27.98065585314321,
+              "return_pct": -4.42741185770732,
+              "to": 1759377600000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 33.433711682495556,
+              "benchmark_price_return_pct": 10.69288309301395,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 30.804615093679978,
+              "return_pct": -9.993204862022399,
+              "to": 1759377600000
+            }
+          },
+          "end_date": "2025-10-02",
+          "screen_passed": false,
+          "start_date": "2024-10-24",
+          "start_index": 706,
+          "stop_index_exclusive": 941
+        }
+      },
+      "source": {
+        "bar_count": 1177,
+        "cache_replay": true,
+        "final_holdout_previously_observed": true,
+        "first_date": "2022-01-03",
+        "last_date": "2026-09-11",
+        "path": "/v2/aggs/ticker/AAPL/range/1/day/2022-01-01/2026-09-11",
+        "provider": "Massive",
+        "query": {
+          "adjusted": true,
+          "limit": 50000,
+          "sort": "asc"
+        },
+        "raw_rows_sha256": "6275d8fb92321270e3feb35b7a00b7e6d754e8dd3ec08ca731c2405ec5a77957",
+        "request_id": "c8dcc85cfc59ee6ef4195c415447c472",
+        "retrieved_at": "2026-09-12T18:23:02.561241+00:00",
+        "training_end_date": "2024-10-23",
+        "used_ohlc_sha256": "db156bc586b8676b04f52d005ec2ab6ded8968482393fe82c1c60fb166947be5"
+      }
+    },
+    "GLD": {
+      "available": true,
+      "evaluation": {
+        "final_holdout": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 26.40451703972575,
+            "benchmark_price_return_pct": 11.439644025329532,
+            "excess_return_pct": 8.589041009084152,
+            "fills": 4,
+            "from": 1759464000000,
+            "max_drawdown_pct": 15.365351407246042,
+            "return_pct": 20.028685034413684,
+            "to": 1789099200000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 26.40451703972575,
+              "benchmark_price_return_pct": 11.66274641577061,
+              "fills": 4,
+              "from": 1759464000000,
+              "max_drawdown_pct": 15.232909860859035,
+              "return_pct": 20.50976144629868,
+              "to": 1789099200000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 26.40451703972575,
+              "benchmark_price_return_pct": 11.439644025329532,
+              "fills": 4,
+              "from": 1759464000000,
+              "max_drawdown_pct": 15.365351407246042,
+              "return_pct": 20.028685034413684,
+              "to": 1789099200000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 26.40451703972574,
+              "benchmark_price_return_pct": 11.105824987263047,
+              "fills": 4,
+              "from": 1759464000000,
+              "max_drawdown_pct": 15.618875700395318,
+              "return_pct": 19.31066679941167,
+              "to": 1789099200000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 26.40451703972575,
+              "benchmark_price_return_pct": 10.551674312131087,
+              "fills": 4,
+              "from": 1759464000000,
+              "max_drawdown_pct": 16.039734435789033,
+              "return_pct": 18.123488602630488,
+              "to": 1789099200000
+            }
+          },
+          "end_date": "2026-09-11",
+          "start_date": "2025-10-03",
+          "start_index": 941,
+          "stop_index_exclusive": 1177
+        },
+        "integrity_checks": {
+          "chronological_nonoverlap": true,
+          "first_holdout_decision_invariant_to_current_and_future_prices": true,
+          "independent_return_and_benchmark_reconciliation": true,
+          "training_invariant_to_all_future_prices": true,
+          "validation_invariant_to_holdout_prices": true
+        },
+        "locked_selection_sha256": "a27f5d107f70aee8e9af22096c96ea5a4f0cb8cb3371ac3ccc3bab7a174794a1",
+        "maximum_reconciliation_error_percentage_points": 4.263256414560601e-14,
+        "training": {
+          "candidates": {
+            "10": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 8.12472790596429,
+                  "benchmark_price_return_pct": -0.34753885842210286,
+                  "fills": 24,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 5.677216278356212,
+                  "return_pct": -0.6902625334914037,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 4.437268892245195,
+                  "benchmark_price_return_pct": 17.98606272044716,
+                  "fills": 20,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 6.042205017180102,
+                  "return_pct": 8.141987826204211,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 5.7712860705379505,
+                  "benchmark_price_return_pct": 16.71115105293739,
+                  "fills": 24,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 7.872998024569933,
+                  "return_pct": 4.141026493315825,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 3.8642505953428774,
+              "worst_fold_drawdown_pct": 7.872998024569933
+            },
+            "20": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 8.12472790596429,
+                  "benchmark_price_return_pct": -0.34753885842210286,
+                  "fills": 12,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 4.329102005672503,
+                  "return_pct": -1.5654820975215755,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 4.437268892245195,
+                  "benchmark_price_return_pct": 17.98606272044716,
+                  "fills": 14,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 7.870101654218842,
+                  "return_pct": 7.852446330585328,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 5.7712860705379505,
+                  "benchmark_price_return_pct": 16.71115105293739,
+                  "fills": 16,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 6.260706706945518,
+                  "return_pct": 6.466053536326344,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 4.251005923130032,
+              "worst_fold_drawdown_pct": 7.870101654218842
+            },
+            "50": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 8.12472790596429,
+                  "benchmark_price_return_pct": -0.34753885842210286,
+                  "fills": 12,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 4.198940873306023,
+                  "return_pct": -1.8314245546778851,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 4.437268892245195,
+                  "benchmark_price_return_pct": 17.98606272044716,
+                  "fills": 12,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 5.765216722528921,
+                  "return_pct": 13.110291710027688,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 5.7712860705379505,
+                  "benchmark_price_return_pct": 16.71115105293739,
+                  "fills": 10,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 7.945590017580262,
+                  "return_pct": 9.705075857683587,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 6.99464767101113,
+              "worst_fold_drawdown_pct": 7.945590017580262
+            }
+          },
+          "fold_boundaries": [
+            353,
+            470,
+            588,
+            706
+          ],
+          "selected_window": 50,
+          "training_stop_exclusive": 706
+        },
+        "validation": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 8.120388349514563,
+            "benchmark_price_return_pct": 39.80381761405969,
+            "excess_return_pct": -17.95581867202627,
+            "fills": 18,
+            "from": 1729742400000,
+            "max_drawdown_pct": 11.175706905320803,
+            "return_pct": 21.84799894203342,
+            "to": 1759377600000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 8.120388349514563,
+              "benchmark_price_return_pct": 40.08370513681052,
+              "fills": 18,
+              "from": 1729742400000,
+              "max_drawdown_pct": 10.64115892828248,
+              "return_pct": 24.06112201432824,
+              "to": 1759377600000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 8.120388349514563,
+              "benchmark_price_return_pct": 39.80381761405969,
+              "fills": 18,
+              "from": 1729742400000,
+              "max_drawdown_pct": 11.175706905320803,
+              "return_pct": 21.84799894203342,
+              "to": 1759377600000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 8.120388349514563,
+              "benchmark_price_return_pct": 39.385033290741674,
+              "fills": 18,
+              "from": 1729742400000,
+              "max_drawdown_pct": 11.97154150205818,
+              "return_pct": 18.602109120096856,
+              "to": 1759377600000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 8.12038834951455,
+              "benchmark_price_return_pct": 38.68983742400645,
+              "fills": 18,
+              "from": 1729742400000,
+              "max_drawdown_pct": 13.282133478675195,
+              "return_pct": 13.383243249893638,
+              "to": 1759377600000
+            }
+          },
+          "end_date": "2025-10-02",
+          "screen_passed": false,
+          "start_date": "2024-10-24",
+          "start_index": 706,
+          "stop_index_exclusive": 941
+        }
+      },
+      "source": {
+        "bar_count": 1177,
+        "cache_replay": true,
+        "final_holdout_previously_observed": true,
+        "first_date": "2022-01-03",
+        "last_date": "2026-09-11",
+        "path": "/v2/aggs/ticker/GLD/range/1/day/2022-01-01/2026-09-11",
+        "provider": "Massive",
+        "query": {
+          "adjusted": true,
+          "limit": 50000,
+          "sort": "asc"
+        },
+        "raw_rows_sha256": "e29f246a7f1d1552deec828ffc62730898f98900811d0a0f84429d47e72a673f",
+        "request_id": "74af3d90083b392217ae9172875c24c4",
+        "retrieved_at": "2026-09-12T18:23:01.783275+00:00",
+        "training_end_date": "2024-10-23",
+        "used_ohlc_sha256": "6b97e495fd8bde824719d112b4f60d0fca0b912e8b564f5169d0b73ebaf19534"
+      }
+    },
+    "IWM": {
+      "available": true,
+      "evaluation": {
+        "final_holdout": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 11.186478372067176,
+            "benchmark_price_return_pct": 17.510820135641847,
+            "excess_return_pct": -12.788440284575131,
+            "fills": 18,
+            "from": 1759464000000,
+            "max_drawdown_pct": 10.045515165292407,
+            "return_pct": 4.722379851066716,
+            "to": 1789099200000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 11.186478372067166,
+              "benchmark_price_return_pct": 17.74607703281026,
+              "fills": 18,
+              "from": 1759464000000,
+              "max_drawdown_pct": 9.548459407190924,
+              "return_pct": 6.624450603531629,
+              "to": 1789099200000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 11.186478372067176,
+              "benchmark_price_return_pct": 17.510820135641847,
+              "fills": 18,
+              "from": 1759464000000,
+              "max_drawdown_pct": 10.045515165292407,
+              "return_pct": 4.722379851066716,
+              "to": 1789099200000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 11.186478372067166,
+              "benchmark_price_return_pct": 17.158814803220213,
+              "fills": 18,
+              "from": 1759464000000,
+              "max_drawdown_pct": 10.851475884696471,
+              "return_pct": 1.9326967225874903,
+              "to": 1789099200000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 11.186478372067155,
+              "benchmark_price_return_pct": 16.574474276264905,
+              "fills": 18,
+              "from": 1759464000000,
+              "max_drawdown_pct": 12.178743707243866,
+              "return_pct": -2.552662567647457,
+              "to": 1789099200000
+            }
+          },
+          "end_date": "2026-09-11",
+          "start_date": "2025-10-03",
+          "start_index": 941,
+          "stop_index_exclusive": 1177
+        },
+        "integrity_checks": {
+          "chronological_nonoverlap": true,
+          "first_holdout_decision_invariant_to_current_and_future_prices": true,
+          "independent_return_and_benchmark_reconciliation": true,
+          "training_invariant_to_all_future_prices": true,
+          "validation_invariant_to_holdout_prices": true
+        },
+        "locked_selection_sha256": "9ef19a01efe30c83944bad744554a1bbe19a04cc1d32d6cf66595427ef80db13",
+        "maximum_reconciliation_error_percentage_points": 8.881784197001252e-14,
+        "training": {
+          "candidates": {
+            "10": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 18.36847667455085,
+                  "benchmark_price_return_pct": 1.953996544413883,
+                  "fills": 18,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 5.54613959042679,
+                  "return_pct": 5.612042051066424,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 8.302425106990018,
+                  "benchmark_price_return_pct": 14.4386815875462,
+                  "fills": 20,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 10.460833877201026,
+                  "return_pct": 3.453604931855314,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 10.071237756010698,
+                  "benchmark_price_return_pct": 6.852545803564025,
+                  "fills": 28,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 11.761467665741165,
+                  "return_pct": -9.839253816032233,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": -0.2578689443701651,
+              "worst_fold_drawdown_pct": 11.761467665741165
+            },
+            "20": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 18.36847667455085,
+                  "benchmark_price_return_pct": 1.953996544413883,
+                  "fills": 18,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 9.040625790117652,
+                  "return_pct": 2.1890546035000957,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 8.302425106990018,
+                  "benchmark_price_return_pct": 14.4386815875462,
+                  "fills": 22,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 15.322646325112721,
+                  "return_pct": -1.6948736552255261,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 10.071237756010698,
+                  "benchmark_price_return_pct": 6.852545803564025,
+                  "fills": 20,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 14.486098069496677,
+                  "return_pct": -10.368850156364983,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": -3.2915564026968047,
+              "worst_fold_drawdown_pct": 15.322646325112721
+            },
+            "50": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 18.36847667455085,
+                  "benchmark_price_return_pct": 1.953996544413883,
+                  "fills": 6,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 6.987738907598528,
+                  "return_pct": 3.0491214090731855,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 8.302425106990018,
+                  "benchmark_price_return_pct": 14.4386815875462,
+                  "fills": 6,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 7.4895029782247935,
+                  "return_pct": 9.360370590837363,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 10.071237756010698,
+                  "benchmark_price_return_pct": 6.852545803564025,
+                  "fills": 16,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 12.366244291282646,
+                  "return_pct": -9.259561385406812,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 1.0499768715012454,
+              "worst_fold_drawdown_pct": 12.366244291282646
+            }
+          },
+          "fold_boundaries": [
+            353,
+            470,
+            588,
+            706
+          ],
+          "selected_window": 50,
+          "training_stop_exclusive": 706
+        },
+        "validation": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 27.879537953795385,
+            "benchmark_price_return_pct": 10.48062766068485,
+            "excess_return_pct": 7.9613883645454315,
+            "fills": 14,
+            "from": 1729742400000,
+            "max_drawdown_pct": 9.69455096703189,
+            "return_pct": 18.44201602523028,
+            "to": 1759377600000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 27.879537953795374,
+              "benchmark_price_return_pct": 10.701810098443953,
+              "fills": 14,
+              "from": 1729742400000,
+              "max_drawdown_pct": 9.151089337175055,
+              "return_pct": 20.111866485276543,
+              "to": 1759377600000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 27.879537953795385,
+              "benchmark_price_return_pct": 10.48062766068485,
+              "fills": 14,
+              "from": 1729742400000,
+              "max_drawdown_pct": 9.69455096703189,
+              "return_pct": 18.44201602523028,
+              "to": 1759377600000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 27.879537953795374,
+              "benchmark_price_return_pct": 10.149681369773411,
+              "fills": 14,
+              "from": 1729742400000,
+              "max_drawdown_pct": 10.672847871842063,
+              "return_pct": 15.980660378033607,
+              "to": 1759377600000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 27.879537953795396,
+              "benchmark_price_return_pct": 9.60029955020072,
+              "fills": 14,
+              "from": 1729742400000,
+              "max_drawdown_pct": 12.441669531983113,
+              "return_pct": 11.991496678868252,
+              "to": 1759377600000
+            }
+          },
+          "end_date": "2025-10-02",
+          "screen_passed": true,
+          "start_date": "2024-10-24",
+          "start_index": 706,
+          "stop_index_exclusive": 941
+        }
+      },
+      "source": {
+        "bar_count": 1177,
+        "cache_replay": true,
+        "final_holdout_previously_observed": true,
+        "first_date": "2022-01-03",
+        "last_date": "2026-09-11",
+        "path": "/v2/aggs/ticker/IWM/range/1/day/2022-01-01/2026-09-11",
+        "provider": "Massive",
+        "query": {
+          "adjusted": true,
+          "limit": 50000,
+          "sort": "asc"
+        },
+        "raw_rows_sha256": "a9639aa06d16d5132a4d352e19b185487f2662d6a078e6123e8cdbf2e4a7ae23",
+        "request_id": "a32bdf53c33cd7c088472f5cc6dff045",
+        "retrieved_at": "2026-09-12T18:23:00.243255+00:00",
+        "training_end_date": "2024-10-23",
+        "used_ohlc_sha256": "24b0ca84d607709f8b65a36ccf09577d864ce07d0574183a4b15a83ed6af0492"
+      }
+    },
+    "MSFT": {
+      "available": true,
+      "evaluation": {
+        "final_holdout": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 34.91062039957939,
+            "benchmark_price_return_pct": -4.343506039502931,
+            "excess_return_pct": 1.3040960485622533,
+            "fills": 14,
+            "from": 1759464000000,
+            "max_drawdown_pct": 16.480511314302802,
+            "return_pct": -3.039409990940678,
+            "to": 1789099200000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 34.91062039957941,
+              "benchmark_price_return_pct": -4.152001547089535,
+              "fills": 14,
+              "from": 1759464000000,
+              "max_drawdown_pct": 16.313305130747857,
+              "return_pct": -1.6724146351837055,
+              "to": 1789099200000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 34.91062039957939,
+              "benchmark_price_return_pct": -4.343506039502931,
+              "fills": 14,
+              "from": 1759464000000,
+              "max_drawdown_pct": 16.480511314302802,
+              "return_pct": -3.039409990940678,
+              "to": 1789099200000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 34.91062039957939,
+              "benchmark_price_return_pct": -4.630046427153922,
+              "fills": 14,
+              "from": 1759464000000,
+              "max_drawdown_pct": 16.730695130095754,
+              "return_pct": -5.0543579273510275,
+              "to": 1789099200000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 34.91062039957939,
+              "benchmark_price_return_pct": -5.10571297448168,
+              "fills": 14,
+              "from": 1759464000000,
+              "max_drawdown_pct": 17.863346033005712,
+              "return_pct": -8.32002056037645,
+              "to": 1789099200000
+            }
+          },
+          "end_date": "2026-09-11",
+          "start_date": "2025-10-03",
+          "start_index": 941,
+          "stop_index_exclusive": 1177
+        },
+        "integrity_checks": {
+          "chronological_nonoverlap": true,
+          "first_holdout_decision_invariant_to_current_and_future_prices": true,
+          "independent_return_and_benchmark_reconciliation": true,
+          "training_invariant_to_all_future_prices": true,
+          "validation_invariant_to_holdout_prices": true
+        },
+        "locked_selection_sha256": "c34f5786e09bd187d9518f42c5b3828a1dfb7ac7328b0071efc473e42088c75a",
+        "maximum_reconciliation_error_percentage_points": 6.572520305780927e-14,
+        "training": {
+          "candidates": {
+            "10": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 13.171437313972579,
+                  "benchmark_price_return_pct": 11.207138282885376,
+                  "fills": 24,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 12.022214575545487,
+                  "return_pct": -2.294959478556924,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 9.325290541956832,
+                  "benchmark_price_return_pct": 11.159703257311548,
+                  "fills": 26,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 8.34624756465725,
+                  "return_pct": 0.8664276329186649,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 15.486782445033798,
+                  "benchmark_price_return_pct": 2.1925549490301233,
+                  "fills": 14,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 5.59802948571313,
+                  "return_pct": 6.7954676521845725,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 1.7889786021821046,
+              "worst_fold_drawdown_pct": 12.022214575545487
+            },
+            "20": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 13.171437313972579,
+                  "benchmark_price_return_pct": 11.207138282885376,
+                  "fills": 12,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 10.175286661355631,
+                  "return_pct": 6.966870770852318,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 9.325290541956832,
+                  "benchmark_price_return_pct": 11.159703257311548,
+                  "fills": 20,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 8.02297512262664,
+                  "return_pct": -0.3203666718026632,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 15.486782445033798,
+                  "benchmark_price_return_pct": 2.1925549490301233,
+                  "fills": 12,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 8.738092139282273,
+                  "return_pct": 0.8397110849901246,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 2.495405061346593,
+              "worst_fold_drawdown_pct": 10.175286661355631
+            },
+            "50": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 13.171437313972579,
+                  "benchmark_price_return_pct": 11.207138282885376,
+                  "fills": 12,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 16.32027105413243,
+                  "return_pct": 2.909746093248544,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 9.325290541956832,
+                  "benchmark_price_return_pct": 11.159703257311548,
+                  "fills": 2,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 4.389489953632153,
+                  "return_pct": 11.436567634046636,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 15.486782445033798,
+                  "benchmark_price_return_pct": 2.1925549490301233,
+                  "fills": 14,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 12.53411447327817,
+                  "return_pct": -4.420702057229575,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 3.3085372233552017,
+              "worst_fold_drawdown_pct": 16.32027105413243
+            }
+          },
+          "fold_boundaries": [
+            353,
+            470,
+            588,
+            706
+          ],
+          "selected_window": 50,
+          "training_stop_exclusive": 706
+        },
+        "validation": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 21.98213264093649,
+            "benchmark_price_return_pct": 21.015588185399547,
+            "excess_return_pct": -12.31229739631794,
+            "fills": 24,
+            "from": 1729742400000,
+            "max_drawdown_pct": 13.291233721228291,
+            "return_pct": 8.703290789081608,
+            "to": 1759377600000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 21.98213264093649,
+              "benchmark_price_return_pct": 21.25786163522012,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 12.419795840530456,
+              "return_pct": 11.343729168855177,
+              "to": 1759377600000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 21.98213264093649,
+              "benchmark_price_return_pct": 21.015588185399547,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 13.291233721228291,
+              "return_pct": 8.703290789081608,
+              "to": 1759377600000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 21.98213264093649,
+              "benchmark_price_return_pct": 20.653084270455956,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 14.582163234666734,
+              "return_pct": 4.859562060742784,
+              "to": 1759377600000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 21.98213264093648,
+              "benchmark_price_return_pct": 20.05131574830252,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 16.89599454046844,
+              "return_pct": -1.2470698543027403,
+              "to": 1759377600000
+            }
+          },
+          "end_date": "2025-10-02",
+          "screen_passed": false,
+          "start_date": "2024-10-24",
+          "start_index": 706,
+          "stop_index_exclusive": 941
+        }
+      },
+      "source": {
+        "bar_count": 1177,
+        "cache_replay": true,
+        "final_holdout_previously_observed": true,
+        "first_date": "2022-01-03",
+        "last_date": "2026-09-11",
+        "path": "/v2/aggs/ticker/MSFT/range/1/day/2022-01-01/2026-09-11",
+        "provider": "Massive",
+        "query": {
+          "adjusted": true,
+          "limit": 50000,
+          "sort": "asc"
+        },
+        "raw_rows_sha256": "d71e26a9a376b0f217e54f13d144dab097f79376b863b1de1ec083af34d0e8cb",
+        "request_id": "7821d883df1a3fb62b1e92f70f604bfd",
+        "retrieved_at": "2026-09-12T18:23:03.340940+00:00",
+        "training_end_date": "2024-10-23",
+        "used_ohlc_sha256": "1251c98948e3b5248158a65ebe05b83688b434acd464dbdf043f76769a2b5dce"
+      }
+    },
+    "QQQ": {
+      "available": true,
+      "evaluation": {
+        "final_holdout": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 12.188370008021776,
+            "benchmark_price_return_pct": 17.632300923590428,
+            "excess_return_pct": -28.94128536581342,
+            "fills": 44,
+            "from": 1759464000000,
+            "max_drawdown_pct": 19.654457328744346,
+            "return_pct": -11.308984442222991,
+            "to": 1789099200000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 12.188370008021753,
+              "benchmark_price_return_pct": 17.867801025539553,
+              "fills": 44,
+              "from": 1759464000000,
+              "max_drawdown_pct": 18.0313691551503,
+              "return_pct": -7.319452345671329,
+              "to": 1789099200000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 12.188370008021776,
+              "benchmark_price_return_pct": 17.632300923590428,
+              "fills": 44,
+              "from": 1759464000000,
+              "max_drawdown_pct": 19.654457328744346,
+              "return_pct": -11.308984442222991,
+              "to": 1789099200000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 12.188370008021776,
+              "benchmark_price_return_pct": 17.27993169374138,
+              "fills": 44,
+              "from": 1759464000000,
+              "max_drawdown_pct": 22.029034576348504,
+              "return_pct": -16.973620760227636,
+              "to": 1789099200000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 12.188370008021776,
+              "benchmark_price_return_pct": 16.694987084986955,
+              "fills": 44,
+              "from": 1759464000000,
+              "max_drawdown_pct": 25.886500216795095,
+              "return_pct": -25.62225466331396,
+              "to": 1789099200000
+            }
+          },
+          "end_date": "2026-09-11",
+          "start_date": "2025-10-03",
+          "start_index": 941,
+          "stop_index_exclusive": 1177
+        },
+        "integrity_checks": {
+          "chronological_nonoverlap": true,
+          "first_holdout_decision_invariant_to_current_and_future_prices": true,
+          "independent_return_and_benchmark_reconciliation": true,
+          "training_invariant_to_all_future_prices": true,
+          "validation_invariant_to_holdout_prices": true
+        },
+        "locked_selection_sha256": "8a6f5086cfa36c8290679595263835326f3606e7037a6e63078c0e0b8d9fbb5b",
+        "maximum_reconciliation_error_percentage_points": 2.4868995751603507e-14,
+        "training": {
+          "candidates": {
+            "10": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 10.908902369471651,
+                  "benchmark_price_return_pct": 10.388411714587908,
+                  "fills": 20,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 11.263608745506415,
+                  "return_pct": 3.5615512916213676,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 7.108293382319985,
+                  "benchmark_price_return_pct": 13.459103839994778,
+                  "fills": 28,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 9.222350977039895,
+                  "return_pct": -1.3988524110626566,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 13.557738189915703,
+                  "benchmark_price_return_pct": 10.593205297085518,
+                  "fills": 18,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 8.012458966936798,
+                  "return_pct": 6.178799327322859,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 2.78049940262719,
+              "worst_fold_drawdown_pct": 11.263608745506415
+            },
+            "20": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 10.908902369471651,
+                  "benchmark_price_return_pct": 10.388411714587908,
+                  "fills": 10,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 6.222357244357168,
+                  "return_pct": 8.325750486088568,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 7.108293382319985,
+                  "benchmark_price_return_pct": 13.459103839994778,
+                  "fills": 20,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 7.386142415796826,
+                  "return_pct": 2.913753882331682,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 13.557738189915703,
+                  "benchmark_price_return_pct": 10.593205297085518,
+                  "fills": 6,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 5.337618339683148,
+                  "return_pct": 12.012150075586714,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 7.750551481335655,
+              "worst_fold_drawdown_pct": 7.386142415796826
+            },
+            "50": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 10.908902369471651,
+                  "benchmark_price_return_pct": 10.388411714587908,
+                  "fills": 14,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 9.421175854376685,
+                  "return_pct": 4.874090901759676,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 7.108293382319985,
+                  "benchmark_price_return_pct": 13.459103839994778,
+                  "fills": 4,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 4.766610581116182,
+                  "return_pct": 9.665106665578094,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 13.557738189915703,
+                  "benchmark_price_return_pct": 10.593205297085518,
+                  "fills": 8,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 11.239188028621284,
+                  "return_pct": 4.726534123905046,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 6.4219105637476055,
+              "worst_fold_drawdown_pct": 11.239188028621284
+            }
+          },
+          "fold_boundaries": [
+            353,
+            470,
+            588,
+            706
+          ],
+          "selected_window": 20,
+          "training_stop_exclusive": 706
+        },
+        "validation": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 22.883303677342827,
+            "benchmark_price_return_pct": 22.84240317200428,
+            "excess_return_pct": -9.622857722499845,
+            "fills": 28,
+            "from": 1729742400000,
+            "max_drawdown_pct": 10.885284789322736,
+            "return_pct": 13.219545449504434,
+            "to": 1759377600000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 22.883303677342816,
+              "benchmark_price_return_pct": 23.088333909085357,
+              "fills": 28,
+              "from": 1729742400000,
+              "max_drawdown_pct": 9.719185029348232,
+              "return_pct": 16.434493019148142,
+              "to": 1759377600000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 22.883303677342827,
+              "benchmark_price_return_pct": 22.84240317200428,
+              "fills": 28,
+              "from": 1729742400000,
+              "max_drawdown_pct": 10.885284789322736,
+              "return_pct": 13.219545449504434,
+              "to": 1759377600000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 22.883303677342827,
+              "benchmark_price_return_pct": 22.474427006795693,
+              "fills": 28,
+              "from": 1729742400000,
+              "max_drawdown_pct": 12.606423342864282,
+              "return_pct": 8.562785882802725,
+              "to": 1759377600000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 22.883303677342816,
+              "benchmark_price_return_pct": 21.863574367701453,
+              "fills": 28,
+              "from": 1729742400000,
+              "max_drawdown_pct": 15.401889045270966,
+              "return_pct": 1.2231672951458439,
+              "to": 1759377600000
+            }
+          },
+          "end_date": "2025-10-02",
+          "screen_passed": false,
+          "start_date": "2024-10-24",
+          "start_index": 706,
+          "stop_index_exclusive": 941
+        }
+      },
+      "source": {
+        "bar_count": 1177,
+        "cache_replay": true,
+        "final_holdout_previously_observed": true,
+        "first_date": "2022-01-03",
+        "last_date": "2026-09-11",
+        "path": "/v2/aggs/ticker/QQQ/range/1/day/2022-01-01/2026-09-11",
+        "provider": "Massive",
+        "query": {
+          "adjusted": true,
+          "limit": 50000,
+          "sort": "asc"
+        },
+        "raw_rows_sha256": "e49e58b61254debb3ac8df334e71b4a1b70a5f0f369287b5c0330d05811945ab",
+        "request_id": "3993e019fa9eecc427e92217658f7fd0",
+        "retrieved_at": "2026-09-12T18:22:59.492253+00:00",
+        "training_end_date": "2024-10-23",
+        "used_ohlc_sha256": "93c70cf9141b6931a60e1bfe43e828d76fa9e9415d02135c85600398f136f21a"
+      }
+    },
+    "SPY": {
+      "available": true,
+      "evaluation": {
+        "final_holdout": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 9.133129160735587,
+            "benchmark_price_return_pct": 13.84691518574115,
+            "excess_return_pct": -16.49152042811961,
+            "fills": 38,
+            "from": 1759464000000,
+            "max_drawdown_pct": 11.769850890698063,
+            "return_pct": -2.6446052423784616,
+            "to": 1789099200000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 9.133129160735587,
+              "benchmark_price_return_pct": 14.074836937864754,
+              "fills": 38,
+              "from": 1759464000000,
+              "max_drawdown_pct": 9.89738042827425,
+              "return_pct": 1.1260905048880776,
+              "to": 1789099200000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 9.133129160735587,
+              "benchmark_price_return_pct": 13.84691518574115,
+              "fills": 38,
+              "from": 1759464000000,
+              "max_drawdown_pct": 11.769850890698063,
+              "return_pct": -2.6446052423784616,
+              "to": 1789099200000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 9.133129160735576,
+              "benchmark_price_return_pct": 13.505885132688356,
+              "fills": 38,
+              "from": 1759464000000,
+              "max_drawdown_pct": 14.506016601840644,
+              "return_pct": -8.038688527016124,
+              "to": 1789099200000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 9.133129160735598,
+              "benchmark_price_return_pct": 12.939763933507887,
+              "fills": 38,
+              "from": 1759464000000,
+              "max_drawdown_pct": 18.994834633404977,
+              "return_pct": -16.372988188525873,
+              "to": 1789099200000
+            }
+          },
+          "end_date": "2026-09-11",
+          "start_date": "2025-10-03",
+          "start_index": 941,
+          "stop_index_exclusive": 1177
+        },
+        "integrity_checks": {
+          "chronological_nonoverlap": true,
+          "first_holdout_decision_invariant_to_current_and_future_prices": true,
+          "independent_return_and_benchmark_reconciliation": true,
+          "training_invariant_to_all_future_prices": true,
+          "validation_invariant_to_holdout_prices": true
+        },
+        "locked_selection_sha256": "69aa5a21ce8ed64fc1b179fc6a60c79eea6055c34420ffb6dff01cb652cfd639",
+        "maximum_reconciliation_error_percentage_points": 4.440892098500626e-14,
+        "training": {
+          "candidates": {
+            "10": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 10.290744664584206,
+                  "benchmark_price_return_pct": 7.065467285893812,
+                  "fills": 18,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 4.900547473261563,
+                  "return_pct": 6.855779136840501,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 5.353900261865152,
+                  "benchmark_price_return_pct": 14.535978340381718,
+                  "fills": 22,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 2.6717058250324666,
+                  "return_pct": 6.388929785575015,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 8.40562263215664,
+                  "benchmark_price_return_pct": 11.452812200551632,
+                  "fills": 22,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 4.421126440660316,
+                  "return_pct": 5.772762959284972,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 6.339157293900162,
+              "worst_fold_drawdown_pct": 4.900547473261563
+            },
+            "20": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 10.290744664584206,
+                  "benchmark_price_return_pct": 7.065467285893812,
+                  "fills": 8,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 6.14581567550383,
+                  "return_pct": 6.097948978517764,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 5.353900261865152,
+                  "benchmark_price_return_pct": 14.535978340381718,
+                  "fills": 12,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 4.181508770795106,
+                  "return_pct": 9.32983169113768,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 8.40562263215664,
+                  "benchmark_price_return_pct": 11.452812200551632,
+                  "fills": 10,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 4.714575827753342,
+                  "return_pct": 6.924867714974625,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 7.45088279487669,
+              "worst_fold_drawdown_pct": 6.14581567550383
+            },
+            "50": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 10.290744664584206,
+                  "benchmark_price_return_pct": 7.065467285893812,
+                  "fills": 10,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 6.851426463837473,
+                  "return_pct": 5.235516182323163,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 5.353900261865152,
+                  "benchmark_price_return_pct": 14.535978340381718,
+                  "fills": 2,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 3.5810424909685,
+                  "return_pct": 11.957327957861175,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 8.40562263215664,
+                  "benchmark_price_return_pct": 11.452812200551632,
+                  "fills": 10,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 8.997131882843911,
+                  "return_pct": 3.83693263196927,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 7.009925590717869,
+              "worst_fold_drawdown_pct": 8.997131882843911
+            }
+          },
+          "fold_boundaries": [
+            353,
+            470,
+            588,
+            706
+          ],
+          "selected_window": 20,
+          "training_stop_exclusive": 706
+        },
+        "validation": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 18.998906889856904,
+            "benchmark_price_return_pct": 15.156194541690592,
+            "excess_return_pct": -9.98003345064593,
+            "fills": 24,
+            "from": 1729742400000,
+            "max_drawdown_pct": 9.264184841844681,
+            "return_pct": 5.176161091044662,
+            "to": 1759377600000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 18.998906889856915,
+              "benchmark_price_return_pct": 15.386737473706003,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 8.44383060289159,
+              "return_pct": 7.730924340309109,
+              "to": 1759377600000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 18.998906889856904,
+              "benchmark_price_return_pct": 15.156194541690592,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 9.264184841844681,
+              "return_pct": 5.176161091044662,
+              "to": 1759377600000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 18.998906889856894,
+              "benchmark_price_return_pct": 14.811242523712465,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 10.481126043313116,
+              "return_pct": 1.4571510317590297,
+              "to": 1759377600000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 18.998906889856904,
+              "benchmark_price_return_pct": 14.238610732674095,
+              "fills": 24,
+              "from": 1729742400000,
+              "max_drawdown_pct": 12.953622972214685,
+              "return_pct": -4.451337086293838,
+              "to": 1759377600000
+            }
+          },
+          "end_date": "2025-10-02",
+          "screen_passed": false,
+          "start_date": "2024-10-24",
+          "start_index": 706,
+          "stop_index_exclusive": 941
+        }
+      },
+      "source": {
+        "bar_count": 1177,
+        "cache_replay": true,
+        "final_holdout_previously_observed": true,
+        "first_date": "2022-01-03",
+        "last_date": "2026-09-11",
+        "path": "/v2/aggs/ticker/SPY/range/1/day/2022-01-01/2026-09-11",
+        "provider": "Massive",
+        "query": {
+          "adjusted": true,
+          "limit": 50000,
+          "sort": "asc"
+        },
+        "raw_rows_sha256": "79c0ca94dc7a13a33904fffc66f574f236883a674ca63c4084e4c9c6ddd806e7",
+        "request_id": "e76971edfb15549a2425600881f9cb2c",
+        "retrieved_at": "2026-09-12T18:22:58.726293+00:00",
+        "training_end_date": "2024-10-23",
+        "used_ohlc_sha256": "21dde87a72f082f3f3c0f57c92840d006b8c893fb10542509e20ef41ca63c487"
+      }
+    },
+    "TLT": {
+      "available": true,
+      "evaluation": {
+        "final_holdout": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 12.252878557462521,
+            "benchmark_price_return_pct": -9.9537860332237,
+            "excess_return_pct": -3.4238181755741763,
+            "fills": 50,
+            "from": 1759464000000,
+            "max_drawdown_pct": 14.767620977557815,
+            "return_pct": -13.377604208797877,
+            "to": 1789099200000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 12.252878557462532,
+              "benchmark_price_return_pct": -9.773513332589534,
+              "fills": 50,
+              "from": 1759464000000,
+              "max_drawdown_pct": 10.844511061138306,
+              "return_pct": -8.936377488137348,
+              "to": 1789099200000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 12.252878557462521,
+              "benchmark_price_return_pct": -9.9537860332237,
+              "fills": 50,
+              "from": 1759464000000,
+              "max_drawdown_pct": 14.767620977557815,
+              "return_pct": -13.377604208797877,
+              "to": 1789099200000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 12.374728437975225,
+              "benchmark_price_return_pct": -10.22352074738958,
+              "fills": 50,
+              "from": 1759464000000,
+              "max_drawdown_pct": 20.33115924287988,
+              "return_pct": -19.63665612318346,
+              "to": 1789099200000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 12.594340647403868,
+              "benchmark_price_return_pct": -10.671289319329913,
+              "fills": 50,
+              "from": 1759464000000,
+              "max_drawdown_pct": 29.079727231380826,
+              "return_pct": -29.079727231380826,
+              "to": 1789099200000
+            }
+          },
+          "end_date": "2026-09-11",
+          "start_date": "2025-10-03",
+          "start_index": 941,
+          "stop_index_exclusive": 1177
+        },
+        "integrity_checks": {
+          "chronological_nonoverlap": true,
+          "first_holdout_decision_invariant_to_current_and_future_prices": true,
+          "independent_return_and_benchmark_reconciliation": true,
+          "training_invariant_to_all_future_prices": true,
+          "validation_invariant_to_holdout_prices": true
+        },
+        "locked_selection_sha256": "042bd7128da5a2b97e10abe232930ed79cdec6be2d90419acb0409d92db197b0",
+        "maximum_reconciliation_error_percentage_points": 3.552713678800501e-14,
+        "training": {
+          "candidates": {
+            "10": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 20.1138886207895,
+                  "benchmark_price_return_pct": -12.147642532974423,
+                  "fills": 20,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 7.966127814055312,
+                  "return_pct": -3.901614524260788,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 12.665406427221182,
+                  "benchmark_price_return_pct": 1.1232448037301612,
+                  "fills": 12,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 6.536329297243482,
+                  "return_pct": 6.251658896702672,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 9.229320043422472,
+                  "benchmark_price_return_pct": 1.0847568273310904,
+                  "fills": 18,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 5.683486228051748,
+                  "return_pct": 0.6874206582577091,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": 1.012488343566531,
+              "worst_fold_drawdown_pct": 7.966127814055312
+            },
+            "20": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 20.1138886207895,
+                  "benchmark_price_return_pct": -12.147642532974423,
+                  "fills": 16,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 10.602069808180348,
+                  "return_pct": -7.604055929373732,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 12.665406427221182,
+                  "benchmark_price_return_pct": 1.1232448037301612,
+                  "fills": 10,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 9.875001743797407,
+                  "return_pct": 1.825539500355866,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 9.229320043422472,
+                  "benchmark_price_return_pct": 1.0847568273310904,
+                  "fills": 14,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 8.627731130586557,
+                  "return_pct": -3.048260718730378,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": -2.9422590492494147,
+              "worst_fold_drawdown_pct": 10.602069808180348
+            },
+            "50": {
+              "folds": [
+                {
+                  "benchmark_max_drawdown_pct": 20.1138886207895,
+                  "benchmark_price_return_pct": -12.147642532974423,
+                  "fills": 10,
+                  "from": 1685505600000,
+                  "max_drawdown_pct": 2.665408375760192,
+                  "return_pct": -1.172578711196015,
+                  "to": 1699938000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 12.665406427221182,
+                  "benchmark_price_return_pct": 1.1232448037301612,
+                  "fills": 10,
+                  "from": 1700024400000,
+                  "max_drawdown_pct": 12.635011224034908,
+                  "return_pct": -1.4460988750351733,
+                  "to": 1714968000000
+                },
+                {
+                  "benchmark_max_drawdown_pct": 9.229320043422472,
+                  "benchmark_price_return_pct": 1.0847568273310904,
+                  "fills": 10,
+                  "from": 1715054400000,
+                  "max_drawdown_pct": 5.85428458391778,
+                  "return_pct": -1.9205333932297286,
+                  "to": 1729656000000
+                }
+              ],
+              "mean_fold_return_pct": -1.5130703264869723,
+              "worst_fold_drawdown_pct": 12.635011224034908
+            }
+          },
+          "fold_boundaries": [
+            353,
+            470,
+            588,
+            706
+          ],
+          "selected_window": 10,
+          "training_stop_exclusive": 706
+        },
+        "validation": {
+          "baseline": {
+            "benchmark_max_drawdown_pct": 11.039305011124046,
+            "benchmark_price_return_pct": -3.099773478175283,
+            "excess_return_pct": -7.380760999923041,
+            "fills": 40,
+            "from": 1729742400000,
+            "max_drawdown_pct": 12.225618752972334,
+            "return_pct": -10.480534478098324,
+            "to": 1759377600000
+          },
+          "cost_sensitivity": {
+            "0": {
+              "benchmark_max_drawdown_pct": 11.039305011124046,
+              "benchmark_price_return_pct": -2.9057790306841746,
+              "fills": 40,
+              "from": 1729742400000,
+              "max_drawdown_pct": 9.823380899405986,
+              "return_pct": -6.8271745425557695,
+              "to": 1759377600000
+            },
+            "10": {
+              "benchmark_max_drawdown_pct": 11.039305011124046,
+              "benchmark_price_return_pct": -3.099773478175283,
+              "fills": 40,
+              "from": 1729742400000,
+              "max_drawdown_pct": 12.225618752972334,
+              "return_pct": -10.480534478098324,
+              "to": 1759377600000
+            },
+            "25": {
+              "benchmark_max_drawdown_pct": 11.039305011124057,
+              "benchmark_price_return_pct": -3.3900394843964787,
+              "fills": 40,
+              "from": 1729742400000,
+              "max_drawdown_pct": 15.881739734515532,
+              "return_pct": -15.693758745838782,
+              "to": 1759377600000
+            },
+            "50": {
+              "benchmark_max_drawdown_pct": 11.039305011124068,
+              "benchmark_price_return_pct": -3.871890682120116,
+              "fills": 40,
+              "from": 1729742400000,
+              "max_drawdown_pct": 23.71666958772026,
+              "return_pct": -23.71666958772026,
+              "to": 1759377600000
+            }
+          },
+          "end_date": "2025-10-02",
+          "screen_passed": false,
+          "start_date": "2024-10-24",
+          "start_index": 706,
+          "stop_index_exclusive": 941
+        }
+      },
+      "source": {
+        "bar_count": 1177,
+        "cache_replay": true,
+        "final_holdout_previously_observed": true,
+        "first_date": "2022-01-03",
+        "last_date": "2026-09-11",
+        "path": "/v2/aggs/ticker/TLT/range/1/day/2022-01-01/2026-09-11",
+        "provider": "Massive",
+        "query": {
+          "adjusted": true,
+          "limit": 50000,
+          "sort": "asc"
+        },
+        "raw_rows_sha256": "8a24e450d60f2df63e52cf6136e3227115359a25cf8763ff8af53ccde233824b",
+        "request_id": "154f4e1b5a33a686af2347a9acd775bd",
+        "retrieved_at": "2026-09-12T18:23:01.048071+00:00",
+        "training_end_date": "2024-10-23",
+        "used_ohlc_sha256": "fcc09b993158e201cf6861c227e4474a7cc16231d6332aede6e061d2110a615b"
+      }
+    }
+  },
+  "schema_version": 1
+}

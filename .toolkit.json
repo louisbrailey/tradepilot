@@ -1,0 +1,13 @@
+{
+  "project": "TradePilot",
+  "entry_points": [
+    "README.md",
+    "LATEST-STATUS.md",
+    "TRADE-INTEGRITY-REVIEW.md"
+  ],
+  "commands": {
+    "test_backend": "python3 -m unittest discover -s server -p test_*.py -q",
+    "test_scripts": "python3 -m unittest discover -s scripts -p test_*.py -q",
+    "check_macos": "bash scripts/check.sh"
+  }
+}
