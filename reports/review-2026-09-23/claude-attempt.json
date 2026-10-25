@@ -1,0 +1,6 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": true,
+  "result": "Not logged in \u00b7 Please run /login"
+}

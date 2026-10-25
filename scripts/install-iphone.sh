@@ -12,9 +12,13 @@ usage() {
   echo "Builds, installs, and launches TradePilot on a trusted iPhone." >&2
 }
 
-if [[ -z "$DEVICE_ID" || "$DEVICE_ID" == "-h" || "$DEVICE_ID" == "--help" ]]; then
+if [[ "$DEVICE_ID" == "-h" || "$DEVICE_ID" == "--help" ]]; then
   usage
   exit 0
+fi
+if [[ $# -lt 1 || $# -gt 2 || -z "$DEVICE_ID" ]]; then
+  usage
+  exit 2
 fi
 if [[ -n "$PAIRING_FILE" && ! -f "$PAIRING_FILE" ]]; then
   echo "Pairing file not found: $PAIRING_FILE" >&2

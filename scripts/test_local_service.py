@@ -1,9 +1,11 @@
 import argparse
+import base64
 import importlib.util
 import json
 import os
 import plistlib
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +17,23 @@ SPEC = importlib.util.spec_from_file_location("manage_local_service", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+PAIR_SPEC = importlib.util.spec_from_file_location("pair_local_server", SCRIPT.with_name("pair-local-server.py"))
+PAIR = importlib.util.module_from_spec(PAIR_SPEC)
+assert PAIR_SPEC.loader is not None
+PAIR_SPEC.loader.exec_module(PAIR)
+
+
+def private_inputs(root):
+    private = root / "private"
+    private.mkdir(mode=0o700)
+    for name in ("config.json", "server.key", "server.pem"):
+        path = private / name
+        path.write_text("placeholder")
+        path.chmod(0o600)
+    market = root / "market.env"
+    market.write_text("MASSIVE_API_KEY=isolated-test-value")
+    return argparse.Namespace(private_dir=str(private), address="192.168.1.20", hostname=None,
+                              interface=None, market_env=str(market), python=sys.executable, dry_run=False)
 
 
 class LocalServiceTests(unittest.TestCase):
@@ -38,7 +57,8 @@ class LocalServiceTests(unittest.TestCase):
             args = argparse.Namespace(private_dir=str(private), address="192.168.1.20",
                                       market_env=str(env), python=str(python), dry_run=False)
             completed = subprocess.CompletedProcess([], 0, "", "")
-            with mock.patch.object(MODULE, "validate_cert_san"), \
+            with mock.patch.object(MODULE, "validate_tls_material"), \
+                 mock.patch.object(MODULE, "validate_cert_san"), \
                  mock.patch.object(MODULE, "assert_launch_paths_accessible"), \
                  mock.patch.object(MODULE, "launch_agent_path", return_value=destination), \
                  mock.patch.object(MODULE.subprocess, "run", return_value=completed) as run:
@@ -85,7 +105,8 @@ class LocalServiceTests(unittest.TestCase):
                                       interface="en0", market_env=str(env), python=str(python), dry_run=False,
                                       address=None)
             completed = subprocess.CompletedProcess([], 0, "", "")
-            with mock.patch.object(MODULE, "validate_cert_san"), \
+            with mock.patch.object(MODULE, "validate_tls_material"), \
+                 mock.patch.object(MODULE, "validate_cert_san"), \
                  mock.patch.object(MODULE, "assert_launch_paths_accessible"), \
                  mock.patch.object(MODULE, "launch_agent_path", return_value=destination), \
                  mock.patch.object(MODULE.subprocess, "run", return_value=completed):
@@ -141,7 +162,8 @@ class LocalServiceTests(unittest.TestCase):
             args = argparse.Namespace(private_dir=str(source), address="192.168.1.20", hostname=None,
                                       interface=None, market_env=str(market), python=str(python),
                                       destination=str(destination), dry_run=False, source_stopped=True)
-            with mock.patch.object(MODULE, "validate_cert_san"), \
+            with mock.patch.object(MODULE, "validate_tls_material"), \
+                 mock.patch.object(MODULE, "validate_cert_san"), \
                  mock.patch.object(MODULE, "inspect_python", side_effect=python_paths), \
                  mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
                 MODULE.deploy(args)
@@ -205,6 +227,178 @@ class LocalServiceTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 MODULE.validate_address(address)
         self.assertEqual(MODULE.validate_address("192.168.68.66"), "192.168.68.66")
+
+
+class PairingTests(unittest.TestCase):
+    def test_existing_tls_or_pairing_refusal_preserves_config_byte_for_byte(self):
+        for filename in ("server.key", "server.pem", "TradePilotPairing.json"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                original = b'{"WEBULL_LIVE_TRADING": "disabled"}\n'
+                config = root / "config.json"
+                config.write_bytes(original)
+                config.chmod(0o600)
+                (root / filename).write_text("existing")
+                with self.assertRaises(SystemExit), mock.patch.object(PAIR, "certificate_material") as create:
+                    PAIR.create_pairing(str(root), "192.168.1.20")
+                create.assert_not_called()
+                self.assertEqual(config.read_bytes(), original)
+                self.assertEqual(sorted(path.name for path in root.iterdir()), sorted(["config.json", filename]))
+
+    def test_unusable_network_addresses_fail_before_creating_private_files(self):
+        for address in ("0.0.0.0", "127.0.0.1", "169.254.1.2", "8.8.8.8", "::", "::1", "fe80::1", "224.1.1.1", "not-an-ip"):
+            with self.subTest(address=address), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder) / "new-private"
+                with self.assertRaises(SystemExit):
+                    PAIR.create_pairing(str(root), address)
+                self.assertFalse(root.exists())
+
+    def test_readable_private_directory_is_refused_without_changing_permissions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            root.chmod(0o755)
+            with self.assertRaises(SystemExit):
+                PAIR.create_pairing(str(root), "192.168.1.20")
+            self.assertEqual(root.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_invalid_config_or_short_existing_token_is_preserved(self):
+        for content in ('[]', '{"APP_ACCESS_TOKEN": "short"}', '{"APP_ACCESS_TOKEN": 42}', '{invalid'):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as folder:
+                config = Path(folder) / "config.json"
+                config.write_text(content)
+                config.chmod(0o600)
+                with self.assertRaises(SystemExit), mock.patch.object(PAIR, "certificate_material") as create:
+                    PAIR.create_pairing(folder, "192.168.1.20")
+                create.assert_not_called()
+                self.assertEqual(config.read_text(), content)
+                self.assertEqual([path.name for path in Path(folder).iterdir()], ["config.json"])
+
+    def test_symlinked_config_and_dangling_tls_paths_are_refused(self):
+        for filename in ("config.json", "server.key", "TradePilotPairing.json"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                private = root / "private"
+                private.mkdir(mode=0o700)
+                target = root / "unrelated"
+                (private / filename).symlink_to(target)
+                with self.assertRaises(SystemExit):
+                    PAIR.create_pairing(str(private), "192.168.1.20")
+                self.assertFalse(target.exists())
+
+    def test_generation_failure_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "new-private"
+            with mock.patch.object(PAIR, "certificate_material", side_effect=SystemExit("dependency unavailable")):
+                with self.assertRaises(SystemExit):
+                    PAIR.create_pairing(str(root), "192.168.1.20")
+            self.assertFalse(root.exists())
+
+    def test_success_preserves_existing_config_and_secures_all_new_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            old_config = {"APP_ACCESS_TOKEN": "isolated-test-token-" * 3, "AI_PROVIDER": "ollama"}
+            (root / "config.json").write_text(json.dumps(old_config))
+            (root / "config.json").chmod(0o600)
+            prior_umask = os.umask(0o022)
+            try:
+                with mock.patch.object(PAIR, "certificate_material", return_value=(b"test-key", b"test-cert", b"test-der")):
+                    PAIR.create_pairing(str(root), "192.168.1.20", "Test-Mac.local")
+                observed = os.umask(0o022)
+            finally:
+                os.umask(prior_umask)
+            self.assertEqual(observed, 0o022)
+            config = json.loads((root / "config.json").read_text())
+            for key, value in old_config.items():
+                self.assertEqual(config[key], value)
+            self.assertEqual(config["WEBULL_LIVE_TRADING"], "disabled")
+            pair = json.loads((root / "TradePilotPairing.json").read_text())
+            self.assertEqual(pair["endpoint"], "https://test-mac.local:8787")
+            self.assertEqual(pair["token"], old_config["APP_ACCESS_TOKEN"])
+            self.assertEqual(base64.b64decode(pair["certificate"]), b"test-der")
+            for path in root.iterdir():
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+
+class LaunchPreflightTests(unittest.TestCase):
+    def test_expired_or_not_yet_valid_certificate_is_refused(self):
+        cases = (("Jan  1 00:00:00 2020 GMT", "Jan  1 00:00:00 2021 GMT"),
+                 ("Jan  1 00:00:00 2040 GMT", "Jan  1 00:00:00 2041 GMT"))
+        for before, after in cases:
+            result = subprocess.CompletedProcess([], 0, f"notBefore={before}\nnotAfter={after}\n", "")
+            with self.subTest(before=before), mock.patch.object(MODULE.ssl, "SSLContext"), \
+                 mock.patch.object(MODULE.time, "time", return_value=1800000000), \
+                 mock.patch.object(MODULE.subprocess, "run", return_value=result):
+                with self.assertRaisesRegex(SystemExit, "expired or not yet valid"):
+                    MODULE.validate_tls_material(Path("cert"), Path("key"))
+
+    def test_real_tls_material_accepts_matching_key_and_rejects_mismatch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cert, key, other = root / "cert.pem", root / "key.pem", root / "other.key"
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                            "-subj", "/CN=isolated-test", "-keyout", str(key), "-out", str(cert)],
+                           check=True, capture_output=True, timeout=30)
+            subprocess.run(["openssl", "genrsa", "-out", str(other), "2048"],
+                           check=True, capture_output=True, timeout=30)
+            MODULE.validate_tls_material(cert, key)
+            with self.assertRaisesRegex(SystemExit, "mismatched"):
+                MODULE.validate_tls_material(cert, other)
+
+    def test_invalid_tls_preflight_cannot_call_launchctl(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args = private_inputs(Path(folder))
+            with mock.patch.object(MODULE, "validate_tls_material", side_effect=SystemExit("bad TLS")), \
+                 mock.patch.object(MODULE.subprocess, "run") as run:
+                with self.assertRaises(SystemExit):
+                    MODULE.install(args)
+            run.assert_not_called()
+            self.assertFalse((Path(args.private_dir) / "server.log").exists())
+
+    def test_symlinked_log_cannot_modify_an_unrelated_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            args = private_inputs(root)
+            args.dry_run = True
+            unrelated = root / "unrelated"
+            unrelated.write_text("preserve")
+            unrelated.chmod(0o644)
+            (Path(args.private_dir) / "server.log").symlink_to(unrelated)
+            with mock.patch.object(MODULE, "validate_tls_material"), mock.patch.object(MODULE, "validate_cert_san"):
+                with self.assertRaisesRegex(SystemExit, "log must be an ordinary file"):
+                    MODULE.install(args)
+            self.assertEqual(unrelated.read_text(), "preserve")
+            self.assertEqual(unrelated.stat().st_mode & 0o777, 0o644)
+
+    def test_foreground_address_mode_validates_before_executing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args = private_inputs(Path(folder))
+            with mock.patch.object(MODULE, "validate_tls_material") as validate, \
+                 mock.patch.object(MODULE, "validate_cert_san") as san, \
+                 mock.patch.object(MODULE.os, "execv") as execute, \
+                 mock.patch.object(MODULE, "discover_interface_address") as discover:
+                MODULE.serve(args)
+            validate.assert_called_once()
+            san.assert_called_once()
+            discover.assert_not_called()
+            argv = execute.call_args.args[1]
+            self.assertEqual(argv[argv.index("--bind") + 1], "192.168.1.20")
+
+    def test_shell_helpers_report_missing_arguments_as_failures(self):
+        for filename in ("start-private-server.sh", "install-iphone.sh"):
+            for args, expected in (([], 2), (["--help"], 0)):
+                with self.subTest(filename=filename, args=args):
+                    result = subprocess.run(["bash", str(SCRIPT.with_name(filename)), *args], capture_output=True)
+                    self.assertEqual(result.returncode, expected)
+
+    def test_manual_launcher_refuses_wildcard_before_starting_server(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args = private_inputs(Path(folder))
+            result = subprocess.run(["bash", str(SCRIPT.with_name("start-private-server.sh")), args.private_dir,
+                                     "0.0.0.0", args.market_env], text=True, capture_output=True,
+                                    env=dict(os.environ, VENV_PYTHON=sys.executable), timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("wildcard/public binds are refused", result.stderr)
 
 
 if __name__ == "__main__":

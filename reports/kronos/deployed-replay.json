@@ -1,0 +1,181 @@
+{
+  "id": "c1ecbcb852e9448cfac8d26677d24c206243440ca852fb126891df167567dc96",
+  "ticker": "AAPL",
+  "model": "NeoQuasar/Kronos-small",
+  "mode": "historical_replay",
+  "source": "Massive adjusted daily OHLCV",
+  "generated_at": 1790921244.241146,
+  "input_start": "2026-03-24",
+  "input_end": "2026-09-24",
+  "lookback": 128,
+  "horizon": 5,
+  "samples": 3,
+  "seed": 42,
+  "notice": "Historical replay, not a live forecast or trading strategy. Model training overlap is not verified. Sampling spread is not a calibrated confidence interval. Price error excludes fees and slippage; no profitability or order recommendation is implied.",
+  "mae": 4.4806004231770995,
+  "baseline_mae": 4.5300000000000065,
+  "points": [
+    {
+      "date": "2026-09-25",
+      "actual": 341.07,
+      "predicted": 335.6714782714844,
+      "low": 334.73382568359375,
+      "high": 337.29150390625,
+      "baseline": 335.92
+    },
+    {
+      "date": "2026-09-28",
+      "actual": 338.4,
+      "predicted": 339.56959025065106,
+      "low": 335.1961975097656,
+      "high": 342.7206115722656,
+      "baseline": 335.92
+    },
+    {
+      "date": "2026-09-29",
+      "actual": 329.4,
+      "predicted": 338.5709533691406,
+      "low": 333.52850341796875,
+      "high": 341.83447265625,
+      "baseline": 335.92
+    },
+    {
+      "date": "2026-09-30",
+      "actual": 333.02,
+      "predicted": 335.1748860677083,
+      "low": 327.91363525390625,
+      "high": 344.7278747558594,
+      "baseline": 335.92
+    },
+    {
+      "date": "2026-10-01",
+      "actual": 330.32,
+      "predicted": 334.8290506998698,
+      "low": 331.000732421875,
+      "high": 342.3050537109375,
+      "baseline": 335.92
+    }
+  ],
+  "history": [
+    {
+      "date": "2026-08-13",
+      "close": 305.26
+    },
+    {
+      "date": "2026-08-14",
+      "close": 305.93
+    },
+    {
+      "date": "2026-08-17",
+      "close": 305.59
+    },
+    {
+      "date": "2026-08-18",
+      "close": 310.03
+    },
+    {
+      "date": "2026-08-19",
+      "close": 316.83
+    },
+    {
+      "date": "2026-08-20",
+      "close": 311.3
+    },
+    {
+      "date": "2026-08-21",
+      "close": 309.35
+    },
+    {
+      "date": "2026-08-24",
+      "close": 310.34
+    },
+    {
+      "date": "2026-08-25",
+      "close": 309.9
+    },
+    {
+      "date": "2026-08-26",
+      "close": 313.45
+    },
+    {
+      "date": "2026-08-27",
+      "close": 314.58
+    },
+    {
+      "date": "2026-08-28",
+      "close": 319.7
+    },
+    {
+      "date": "2026-08-31",
+      "close": 316.85
+    },
+    {
+      "date": "2026-09-01",
+      "close": 325.13
+    },
+    {
+      "date": "2026-09-02",
+      "close": 324.96
+    },
+    {
+      "date": "2026-09-03",
+      "close": 328.21
+    },
+    {
+      "date": "2026-09-04",
+      "close": 319.97
+    },
+    {
+      "date": "2026-09-08",
+      "close": 316.22
+    },
+    {
+      "date": "2026-09-09",
+      "close": 315.34
+    },
+    {
+      "date": "2026-09-10",
+      "close": 326.57
+    },
+    {
+      "date": "2026-09-11",
+      "close": 332.27
+    },
+    {
+      "date": "2026-09-14",
+      "close": 333.08
+    },
+    {
+      "date": "2026-09-15",
+      "close": 331.34
+    },
+    {
+      "date": "2026-09-16",
+      "close": 332.41
+    },
+    {
+      "date": "2026-09-17",
+      "close": 337.0
+    },
+    {
+      "date": "2026-09-18",
+      "close": 336.13
+    },
+    {
+      "date": "2026-09-21",
+      "close": 338.98
+    },
+    {
+      "date": "2026-09-22",
+      "close": 339.75
+    },
+    {
+      "date": "2026-09-23",
+      "close": 337.02
+    },
+    {
+      "date": "2026-09-24",
+      "close": 335.92
+    }
+  ]
+}

@@ -146,6 +146,9 @@ struct JournalView: View {
             Picker("Section", selection: $section) { Text("Strategies").tag(0); Text("Journal").tag(1) }.pickerStyle(.segmented)
             if let error = store.journal.error { Text(error).font(.caption).foregroundStyle(.orange) }
             if section == 0 {
+                NavigationLink { KronosView() } label: { Label("Kronos forecasting lab", systemImage: "waveform.path") }.buttonStyle(MintButton())
+                NavigationLink { StrategyComparisonView() } label: { Label("Open strategy lab", systemImage: "chart.xyaxis.line") }.buttonStyle(MintButton())
+                NavigationLink { PaperTradingView() } label: { Label("Paper account & journal", systemImage: "book.pages") }
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Build evidence,\nthen build conviction.").font(.title.bold())
                     Text("Strategy profiles guide research. Journal retrieval gives the AI context from previous actions; it does not retrain the model or prove that a strategy works.").font(.subheadline).foregroundStyle(Palette.muted)

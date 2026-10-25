@@ -108,11 +108,15 @@ class WebullService:
             CREATE TABLE IF NOT EXISTS reviews (
                 id TEXT PRIMARY KEY, environment TEXT NOT NULL, account TEXT NOT NULL,
                 body TEXT NOT NULL, preview TEXT NOT NULL, expires REAL NOT NULL,
-                token_hash TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '{}');
+                token_hash TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '{}',
+                observed_filled_quantity TEXT);
             CREATE TABLE IF NOT EXISTS audit (
                 id INTEGER PRIMARY KEY, at REAL NOT NULL, review_id TEXT,
                 event TEXT NOT NULL, detail TEXT NOT NULL);
         """)
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(reviews)")}
+        if "observed_filled_quantity" not in columns:
+            self.db.execute("ALTER TABLE reviews ADD COLUMN observed_filled_quantity TEXT")
         self.executions = ExecutionLedger(self.db, self.clock)
         self.db.commit()
 
@@ -289,14 +293,36 @@ class WebullService:
                 self.db.execute("BEGIN IMMEDIATE")
                 row = self.row(review_id)
                 state, result = row["state"], json.loads(row["result"])
+                observed_quantity = row["observed_filled_quantity"]
+                # Older receipts can contain a verified quantity without a price.
+                # Restore that lower bound, but do not turn it into a fill value.
+                if observed_quantity is None:
+                    try:
+                        tracked = self.db.execute("""SELECT order_id FROM execution_tracked
+                            WHERE environment=? AND account_id=? AND client_order_id=?""",
+                            (row["environment"], row["account"], client_id)).fetchone()
+                        saved = self.detail_candidate(result, row, body)
+                        saved_qty, _ = self.executions.validate_candidate(
+                            body, saved, tracked["order_id"] if tracked else None, allow_incomplete=True)
+                        if saved["status"] == state and saved_qty is not None:
+                            observed_quantity = str(saved_qty)
+                    except ExecutionEvidenceError:
+                        pass
                 try:
                     candidate = self.detail_candidate(detail, row, body)
                     qty, price = self.executions.validate_candidate(body, candidate, allow_incomplete=True)
                     previous = self.db.execute("""SELECT filled_quantity FROM execution_latest
                         WHERE environment=? AND account_id=? AND client_order_id=?""",
                         (row["environment"], row["account"], client_id)).fetchone()
-                    if previous and qty is not None and qty < Decimal(previous["filled_quantity"]):
+                    if (qty is not None and
+                            ((previous and qty < Decimal(previous["filled_quantity"])) or
+                             (observed_quantity is not None and qty < Decimal(observed_quantity)))):
                         raise ExecutionEvidenceError("Broker detail decreased cumulative filled quantity")
+                    if (qty is None and candidate.get("filled_price") is not None
+                            and Decimal(str(candidate["filled_price"])) == 0
+                            and ((previous and Decimal(previous["filled_quantity"]) > 0) or
+                                 (observed_quantity is not None and Decimal(observed_quantity) > 0))):
+                        raise ExecutionEvidenceError("Zero fill price conflicted with a previously reported fill")
                     if state in ("CANCELLED", "FILLED", "FAILED") and candidate["status"] != state:
                         raise ExecutionEvidenceError("Broker detail conflicted with a terminal order state")
                     if state == "PARTIAL_FILLED" and candidate["status"] in ("SUBMITTED", "PENDING"):
@@ -310,6 +336,8 @@ class WebullService:
                     if complete or missing:
                         state = candidate["status"]
                         result = detail
+                        if qty is not None:
+                            observed_quantity = str(qty)
                     else:
                         raise ExecutionEvidenceError("Broker detail conflicted with verified execution evidence")
                 except ExecutionEvidenceError as exc:
@@ -317,7 +345,8 @@ class WebullService:
                     # Keep the last trusted result available for recovery and
                     # clearly explain why the new observation was not adopted.
                     result = {**result, "tradepilot_status_warning": str(exc)}
-                self.db.execute("UPDATE reviews SET state=?,result=? WHERE id=?", (state, json.dumps(result), review_id))
+                self.db.execute("UPDATE reviews SET state=?,result=?,observed_filled_quantity=? WHERE id=?",
+                                (state, json.dumps(result), observed_quantity, review_id))
                 self.audit(review_id, "broker_status", detail)
             return self.receipt(self.row(review_id))
 
@@ -356,6 +385,9 @@ class WebullService:
         with self.lock, self.db:
             row = self.row(review_id)
             if row["state"] == "REVIEW":
-                self.db.execute("UPDATE reviews SET state='CANCELLED_REVIEW' WHERE id=?", (review_id,))
-                self.audit(review_id, "cancelled_review", {})
+                changed = self.db.execute(
+                    "UPDATE reviews SET state='CANCELLED_REVIEW' WHERE id=? AND state='REVIEW'",
+                    (review_id,)).rowcount
+                if changed == 1:
+                    self.audit(review_id, "cancelled_review", {})
             return self.receipt(self.row(review_id))

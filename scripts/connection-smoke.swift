@@ -8,7 +8,7 @@ precondition(ConnectionSettings.matchesPairedOrigin(paired, pairedOrigin: paired
 precondition(!ConnectionSettings.matchesPairedOrigin(otherPort, pairedOrigin: pairedOrigin))
 precondition(!ConnectionSettings.matchesPairedOrigin(otherHost, pairedOrigin: pairedOrigin))
 
-let review = BrokerReview(id: "review-1", confirmation_token: "confirmation", environment: "sandbox", account_id: "account-a", order: ["side": "BUY", "symbol": "AAPL", "quantity": "2", "client_order_id": "client-1"], estimated_cost: "200", estimated_fee: "0", expires_at: 2_000)
+let review = BrokerReview(id: "review-1", confirmation_token: "confirmation", environment: "sandbox", account_id: "account-a", order: ["side": "BUY", "symbol": "AAPL", "quantity": "2", "client_order_id": "client-1", "market": "US", "instrument_type": "EQUITY", "combo_type": "NORMAL", "order_type": "MARKET", "time_in_force": "DAY", "support_trading_session": "CORE", "entrust_type": "QTY"], estimated_cost: "200", estimated_fee: "0", expires_at: 2_000)
 precondition(BrokerValidation.reviewMatches(review, account: "account-a", environment: "sandbox", side: "BUY", symbol: "AAPL", quantity: "2", now: 1_000))
 precondition(!BrokerValidation.reviewMatches(review, account: "account-b", environment: "sandbox", side: "BUY", symbol: "AAPL", quantity: "2", now: 1_000))
 precondition(!BrokerValidation.reviewMatches(review, account: "account-a", environment: "production", side: "BUY", symbol: "AAPL", quantity: "2", now: 1_000))
@@ -71,3 +71,54 @@ precondition(EvaluationValidation.connectionMatches(endpoint: "https://a.local:8
 precondition(!EvaluationValidation.connectionMatches(endpoint: "https://a.local:8787", token: "first", currentEndpoint: "https://b.local:8787", currentToken: "first"))
 precondition(!EvaluationValidation.connectionMatches(endpoint: "https://a.local:8787", token: "first", currentEndpoint: "https://a.local:8787", currentToken: "changed"))
 print("PASS recorded evaluation metrics, historical scope, and connection binding")
+
+let connection = BrokerConnectionBinding(endpoint: "https://a.local", token: "first")
+precondition(connection.matches(endpoint: "https://a.local", token: "first"))
+precondition(!connection.matches(endpoint: "https://a.local", token: "rotated"))
+precondition(!connection.matches(endpoint: "https://b.local", token: "first"))
+func changedReview(_ changes: [String: String]) -> BrokerReview {
+    BrokerReview(id: review.id, confirmation_token: review.confirmation_token, environment: review.environment,
+        account_id: review.account_id, order: review.order.merging(changes) { _, new in new },
+        estimated_cost: review.estimated_cost, estimated_fee: review.estimated_fee, expires_at: review.expires_at)
+}
+for changes in [["time_in_force": "GTC"], ["market": "HK"], ["instrument_type": "OPTION"],
+                ["support_trading_session": "ALL"], ["quantity": "2oops"], ["limit_price": "10"]] {
+    precondition(!BrokerValidation.reviewMatches(changedReview(changes), account: "account-a", environment: "sandbox", now: 1000))
+}
+let limited = changedReview(["order_type": "LIMIT", "limit_price": "100.25"])
+precondition(BrokerValidation.reviewMatches(limited, account: "account-a", environment: "sandbox", orderType: "LIMIT", limitPrice: "100.2500", now: 1000))
+precondition(!BrokerValidation.reviewMatches(limited, account: "account-a", environment: "sandbox", orderType: "MARKET", now: 1000))
+precondition(!BrokerValidation.reviewMatches(limited, account: "account-a", environment: "sandbox", orderType: "LIMIT", limitPrice: "100.26", now: 1000))
+print("PASS exact preview terms and credential-change binding")
+
+let signedEstimate = BrokerReview(id: review.id, confirmation_token: review.confirmation_token,
+    environment: review.environment, account_id: review.account_id, order: review.order,
+    estimated_cost: "-200", estimated_fee: "-0.01", expires_at: review.expires_at)
+precondition(BrokerValidation.reviewMatches(signedEstimate, account: "account-a", environment: "sandbox", now: 1000))
+
+if CommandLine.arguments.count > 1 {
+    let directory = URL(fileURLWithPath: CommandLine.arguments[1])
+    func fixture<T: Decodable>(_ name: String, as type: T.Type) throws -> T {
+        try JSONDecoder().decode(type, from: Data(contentsOf: directory.appendingPathComponent(name + ".json")))
+    }
+    let paperReview = try fixture("review", as: PaperReview.self)
+    let paperReceipt = try fixture("receipt", as: PaperReview.self)
+    let paperState = try fixture("state", as: PaperSnapshot.self)
+    let intent = PaperIntentRequest(symbol: "AAPL", side: "buy", quantity: "2", client_id: "fixture-1234")
+    precondition(PaperValidation.reviewMatches(paperReview, request: intent))
+    precondition(PaperValidation.receiptMatches(paperReceipt, review: paperReview))
+    precondition(paperState.mode == "paper" && paperState.positions.first?.quantity == "2")
+    precondition(paperState.journal.first?.data.text == "Synthetic reflection")
+    precondition(PaperValidation.decimal("1junk") == nil)
+    precondition(PaperValidation.decimal("NaN") == nil)
+    precondition(PaperValidation.decimal("1e5") == nil)
+    precondition(!PaperValidation.reviewMatches(paperReview, request: PaperIntentRequest(symbol: "AAPL", side: "sell", quantity: "2", client_id: "fixture-1234")))
+    precondition(!PaperValidation.reviewMatches(paperReview, request: intent, now: paperReview.expires_at))
+    var receiptJSON = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("receipt.json"))) as! [String: Any]
+    receiptJSON["fill_price"] = "1.00"
+    let wrongPrice = try JSONDecoder().decode(PaperReview.self, from: JSONSerialization.data(withJSONObject: receiptJSON))
+    precondition(!PaperValidation.receiptMatches(wrongPrice, review: paperReview))
+    let strategies = try fixture("strategies", as: StrategyComparison.self)
+    precondition(strategies.strategies.count == 3 && strategies.evidence == "exploratory_previously_observed")
+    print("PASS native paper review/receipt arithmetic, strict decimals, persisted journal and strategy API decoding")
+}

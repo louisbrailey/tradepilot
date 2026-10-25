@@ -1,0 +1,7 @@
+{
+  "operation": "requested read-only Webull connection",
+  "connected": false,
+  "http_status": 409,
+  "reason": "Cannot establish Webull authentication. Open or update the Webull mobile app, sign into the same account, approve any pending API 2FA request, and check your network and credentials.",
+  "orders_submitted": false
+}

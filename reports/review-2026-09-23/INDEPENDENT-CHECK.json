@@ -1,0 +1,65 @@
+{
+  "all_checks_passed": true,
+  "all_protocol_hashes_identical": true,
+  "method": "independent daily exposure-return recurrence and running peak drawdown",
+  "raw_bars_included": false,
+  "symbols": {
+    "AAPL": {
+      "independent_runs": 17,
+      "maximum_metric_error": 1.3500311979441904e-13,
+      "original_evaluation_identical": true,
+      "original_input_hash_identical": true,
+      "previously_observed": true,
+      "selected_window_reconciled": 20
+    },
+    "GLD": {
+      "independent_runs": 17,
+      "maximum_metric_error": 1.7763568394002505e-13,
+      "original_evaluation_identical": true,
+      "original_input_hash_identical": true,
+      "previously_observed": true,
+      "selected_window_reconciled": 50
+    },
+    "IWM": {
+      "independent_runs": 17,
+      "maximum_metric_error": 1.3322676295501878e-13,
+      "original_evaluation_identical": true,
+      "original_input_hash_identical": true,
+      "previously_observed": true,
+      "selected_window_reconciled": 50
+    },
+    "MSFT": {
+      "independent_runs": 17,
+      "maximum_metric_error": 2.007283228522283e-13,
+      "original_evaluation_identical": true,
+      "original_input_hash_identical": true,
+      "previously_observed": true,
+      "selected_window_reconciled": 50
+    },
+    "QQQ": {
+      "independent_runs": 17,
+      "maximum_metric_error": 1.7763568394002505e-13,
+      "original_evaluation_identical": true,
+      "original_input_hash_identical": true,
+      "previously_observed": true,
+      "selected_window_reconciled": 20
+    },
+    "SPY": {
+      "independent_runs": 17,
+      "maximum_metric_error": 2.2026824808563106e-13,
+      "original_evaluation_identical": true,
+      "original_input_hash_identical": true,
+      "previously_observed": true,
+      "selected_window_reconciled": 20
+    },
+    "TLT": {
+      "independent_runs": 17,
+      "maximum_metric_error": 1.5543122344752192e-13,
+      "original_evaluation_identical": true,
+      "original_input_hash_identical": true,
+      "previously_observed": true,
+      "selected_window_reconciled": 10
+    }
+  },
+  "total_independent_runs": 119
+}

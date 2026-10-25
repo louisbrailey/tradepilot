@@ -5,18 +5,21 @@ Source bars stay in an owner-only cache; public artifacts contain derived metric
 and hashes. A previously observed final holdout is never called unseen again.
 """
 import argparse
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import statistics
+import stat
 import sys
 from datetime import date, datetime, timedelta, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "server"))
-from research import Massive, load_market_env, simulate
+from research import Massive, load_market_env, simulate, validated_daily_bars
 
 VERSION = "sma-multistage-v1"
 SYMBOLS = ("SPY", "QQQ", "IWM", "TLT", "GLD", "AAPL", "MSFT")
@@ -49,29 +52,7 @@ def protocol(symbols, start, end):
 
 
 def validated_bars(rows, start, end):
-    if not isinstance(rows, list) or len(rows) < MIN_BARS:
-        raise ValueError("At least 500 daily bars are required; no smaller fallback is evaluated")
-    clean, previous, days = [], -1, set()
-    for row in rows:
-        timestamp = row.get("t")
-        if (isinstance(timestamp, bool) or not isinstance(timestamp, (int, float))
-                or not math.isfinite(timestamp) or timestamp <= previous):
-            raise ValueError("Daily timestamps must be finite, unique and ascending")
-        day = iso_day(timestamp)
-        if day in days or not start <= day <= end:
-            raise ValueError("Duplicate daily date or bar outside requested date range")
-        prices = {}
-        for key in ("o", "h", "l", "c"):
-            value = row.get(key)
-            if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or value <= 0:
-                raise ValueError("OHLC prices must be finite positive numbers")
-            prices[key] = float(value)
-        if prices["l"] > min(prices["o"], prices["c"]) or prices["h"] < max(prices["o"], prices["c"]):
-            raise ValueError("OHLC prices violate high/low bounds")
-        clean.append(dict(t=timestamp, **prices))
-        days.add(day)
-        previous = timestamp
-    return clean
+    return validated_daily_bars(rows, minimum=MIN_BARS, start=start, end=end, require_ohlc=True)
 
 
 def compact(run):
@@ -190,32 +171,69 @@ def private_json(path, payload):
         json.dump(payload, stream, sort_keys=True, allow_nan=False)
 
 
+def read_private_json(path):
+    """Refuse nonregular/unowned/public cache records and malformed JSON."""
+    descriptor = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "r") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError("Cache records must be owner-only regular files")
+        try:
+            payload = json.load(stream)
+        except (ValueError, UnicodeError):
+            raise ValueError("Invalid cache JSON record") from None
+    if not isinstance(payload, dict):
+        raise ValueError("Cache record must be an object")
+    return payload
+
+
+@contextmanager
+def observation_lock(cache):
+    descriptor = os.open(str(cache / ".observations.lock"),
+                         os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError("Observation lock must be an owner-only regular file")
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
 def mark_observation(cache, ticker, first, last, protocol_sha, timestamp):
     """Track overlapping final-date ranges, including protocol/date-bound changes."""
-    seen = False
-    for path in cache.glob("observed-*.json"):
-        if path.is_symlink():
-            raise ValueError("Observation ledger must not contain symlinks")
-        previous = json.loads(path.read_text())
-        if previous.get("ticker") == ticker and previous["start"] <= last and previous["end"] >= first:
-            seen = True
-    path = cache / ("observed-" + digest({"ticker": ticker, "start": first, "end": last}) + ".json")
-    if not path.exists():
-        private_json(path, {"first_observed_at": timestamp, "ticker": ticker,
-                           "start": first, "end": last, "protocol_sha256": protocol_sha})
-    return seen
+    with observation_lock(cache):
+        seen = False
+        for path in cache.glob("observed-*.json"):
+            if path.is_symlink():
+                raise ValueError("Observation ledger must not contain symlinks")
+            previous = read_private_json(path)
+            if (not isinstance(previous.get("ticker"), str)
+                    or any(not isinstance(previous.get(key), str) for key in ("start", "end"))
+                    or previous["start"] > previous["end"]):
+                raise ValueError("Invalid observation ledger record")
+            if previous.get("ticker") == ticker and previous["start"] <= last and previous["end"] >= first:
+                seen = True
+        path = cache / ("observed-" + digest({"ticker": ticker, "start": first, "end": last}) + ".json")
+        if not path.exists():
+            private_json(path, {"first_observed_at": timestamp, "ticker": ticker,
+                               "start": first, "end": last, "protocol_sha256": protocol_sha})
+        return seen
 
 
 def acquire(client, ticker, start, end, cache, offline):
     cache_file = cache / (ticker + "-" + start + "-" + end + ".json")
     if cache_file.exists():
-        if cache_file.is_symlink() or cache_file.stat().st_mode & 0o077:
-            raise ValueError("Cached bars must be an owner-only regular file")
-        payload = json.loads(cache_file.read_text())
+        payload = read_private_json(cache_file)
         if (payload.get("ticker"), payload.get("start"), payload.get("end")) != (ticker, start, end):
             raise ValueError("Cache source metadata mismatch")
         if digest(payload["rows"]) != payload.get("raw_rows_sha256"):
             raise ValueError("Cache content hash mismatch")
+        # Legacy caches predate envelope retention; preserve that uncertainty.
+        if "adjusted" in payload and payload["adjusted"] is not True:
+            raise ValueError("Cached provider response was not split-adjusted")
         payload["cache_replay"] = True
         return payload
     if offline:
@@ -226,11 +244,14 @@ def acquire(client, ticker, start, end, cache, offline):
         raise ValueError(response["reason"])
     if response["partial_page"]:
         raise ValueError("Provider returned a partial page; evaluation refused")
+    if response.get("adjusted") is not True:
+        raise ValueError("Provider did not confirm split-adjusted bars")
     rows = response["results"]
     validated_bars(rows, start, end)
     payload = {"ticker": ticker, "start": start, "end": end, "rows": rows,
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
         "raw_rows_sha256": digest(rows), "provider_request_id": response.get("request_id"),
+        "adjusted": response["adjusted"],
         "cache_replay": False}
     private_json(cache_file, payload)
     return payload
@@ -270,6 +291,7 @@ def markdown(report):
         stress = " | ".join(f"{final['cost_sensitivity'][str(c)]['return_pct']:+.2f}%" for c in COSTS)
         lines.append(f"| {ticker} | {row['source']['training_end_date']} | {val['start_date']}–{val['end_date']} | {final['start_date']}–{final['end_date']} | {stress} | {final['baseline']['fills']} |")
     lines += ["", "## Integrity and interpretation", "",
+        "New downloads require the provider response to confirm split adjustment. Legacy cached snapshots retain an unknown provider-adjustment flag; their frozen request and exact replay are verified, but the discarded response envelope cannot be reconstructed.", "",
         "Every accepted dataset passed finite positive OHLC, high/low consistency, ascending unique timestamps, unique daily dates, requested-date bounds, minimum-history and full-page checks. Missing exchange sessions cannot be conclusively identified without a separately sourced exchange calendar; cross-symbol date-set agreement is reported in the JSON. No missing bar is filled or invented.", "",
         "Mutation checks verify that changing all future prices leaves training selection unchanged, changing final-holdout prices leaves validation unchanged, and current/future prices cannot alter the first holdout entry decision. Independent round-trip accounting reconciles strategy and benchmark returns for both validation and final stages at every cost assumption. These checks cover this daily-bar algorithm, not every possible source revision or modeling bias.", "",
         "The fixed validation screen requires positive benchmark excess, no greater drawdown than benchmark, and at least two fills at 10 bps per side. The final period is evaluated even for failed screens to avoid hiding adverse results. No parameter was changed in response to these outcomes. This is a computational separation of historical data; it cannot establish that no analyst or earlier tool has ever observed that history.", "",
@@ -297,7 +319,10 @@ def main(argv=None):
     frozen = protocol(SYMBOLS, args.start, args.end)
     protocol_sha = digest(frozen)
     frozen_file = cache / ("protocol-" + protocol_sha + ".json")
-    if not frozen_file.exists():
+    if frozen_file.exists():
+        if read_private_json(frozen_file).get("protocol") != frozen:
+            raise ValueError("Frozen protocol content mismatch")
+    else:
         private_json(frozen_file, {"frozen_at": datetime.now(timezone.utc).isoformat(), "protocol": frozen})
     if args.market_env:
         load_market_env(args.market_env)
@@ -321,6 +346,7 @@ def main(argv=None):
                 "provider": "Massive", "path": f"/v2/aggs/ticker/{ticker}/range/1/day/{args.start}/{args.end}",
                 "query": {"adjusted": True, "sort": "asc", "limit": 50000},
                 "retrieved_at": payload["retrieved_at"], "request_id": payload["provider_request_id"],
+                "provider_adjusted": payload.get("adjusted"),
                 "bar_count": len(bars), "first_date": iso_day(bars[0]["t"]), "last_date": iso_day(bars[-1]["t"]),
                 "training_end_date": iso_day(bars[result["training"]["training_stop_exclusive"] - 1]["t"]),
                 "raw_rows_sha256": payload["raw_rows_sha256"], "used_ohlc_sha256": digest(bars),

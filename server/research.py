@@ -58,8 +58,10 @@ class Massive:
             if result.get("status") in ("ERROR", "NOT_AUTHORIZED"):
                 return {"available": False, "reason": "Provider denied this dataset"}
             return {"available": True, "results": result.get("results", []),
-                    "partial_page": bool(result.get("next_url")), "request_id": result.get("request_id")}
+                    "partial_page": bool(result.get("next_url")), "request_id": result.get("request_id"),
+                    "adjusted": result.get("adjusted")}
         except HTTPError as error:
+            error.close()
             return {"available": False, "reason": "Provider HTTP " + str(error.code)}
         except Exception:
             return {"available": False, "reason": "Provider connection failed"}
@@ -86,7 +88,9 @@ class Massive:
         experiment = {"available": False, "reason": "Insufficient or unavailable bars"}
         if bars["available"] and not bars["partial_page"]:
             try:
-                experiment = walk_forward(bars["results"])
+                if bars.get("adjusted") is not True:
+                    raise ValueError("Provider did not confirm split-adjusted bars")
+                experiment = walk_forward(bars["results"], start=str(start), end=str(end), require_ohlc=True)
             except (ValueError, KeyError, TypeError) as error:
                 experiment = {"available": False,
                               "reason": "Historical bars failed validation: " + str(error)}
@@ -160,18 +164,45 @@ def _aggregate_fold_results(results):
     }
 
 
-def walk_forward(bars):
-    if len(bars) < 160:
-        raise ValueError("At least 160 daily bars required")
-    previous = -1
-    for row in bars:
-        if (not isinstance(row["t"], (int, float)) or isinstance(row["t"], bool)
-                or not math.isfinite(row["t"]) or row["t"] <= previous):
-            raise ValueError("Bars must have unique ascending timestamps")
-        previous = row["t"]
-        for field in ("o", "c"):
-            if not math.isfinite(float(row[field])) or float(row[field]) <= 0:
-                raise ValueError("Invalid prices")
+def validated_daily_bars(rows, minimum=160, start=None, end=None, require_ohlc=False):
+    """Validate daily source bars before any signal or accounting calculation."""
+    if not isinstance(rows, list) or len(rows) < minimum:
+        raise ValueError(f"At least {minimum} daily bars required")
+    previous, days, clean = -1, set(), []
+    fields = ("o", "h", "l", "c") if require_ohlc else ("o", "c")
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Daily bars must be objects")
+        timestamp = row.get("t")
+        if (isinstance(timestamp, bool) or not isinstance(timestamp, (int, float))
+                or not math.isfinite(timestamp) or timestamp <= previous):
+            raise ValueError("Daily timestamps must be finite, unique and ascending")
+        try:
+            day = datetime.fromtimestamp(timestamp / 1000, timezone.utc).date().isoformat()
+        except (ValueError, OverflowError, OSError):
+            raise ValueError("Invalid daily timestamp") from None
+        if day in days:
+            raise ValueError("Duplicate daily date")
+        if (start is not None and day < start) or (end is not None and day > end):
+            raise ValueError("Bar outside requested date range")
+        prices = {}
+        for field in fields:
+            value = row.get(field)
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or value <= 0):
+                raise ValueError("Prices must be finite positive numbers")
+            prices[field] = float(value)
+        if require_ohlc and (prices["l"] > min(prices["o"], prices["c"])
+                             or prices["h"] < max(prices["o"], prices["c"])):
+            raise ValueError("OHLC prices violate high/low bounds")
+        clean.append(dict(t=timestamp, **prices))
+        days.add(day)
+        previous = timestamp
+    return clean
+
+
+def walk_forward(bars, start=None, end=None, require_ohlc=False):
+    bars = validated_daily_bars(bars, start=start, end=end, require_ohlc=require_ohlc)
     candidates = [10, 20, 50]
     split = len(bars) // 2
     remaining = len(bars) - split

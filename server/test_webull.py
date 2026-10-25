@@ -1,11 +1,13 @@
 import os
 import json
+import sqlite3
 import sys
 import tempfile
 import threading
 import types
 import unittest
 from unittest.mock import patch
+from contextlib import closing
 from webull_service import WebullAdapter, WebullService, BrokerError
 
 class FakeBroker:
@@ -153,6 +155,78 @@ class WebullTests(unittest.TestCase):
         self.service.cancel_review(review['id'])
         self.assertEqual(self.service.confirm(self.approval(review))['state'], 'CANCELLED_REVIEW')
         self.assertEqual(self.adapter.calls, 0)
+    def test_dismissal_cannot_overwrite_confirmation_from_another_connection(self):
+        review = self.review()
+        other = WebullService(self.path, self.adapter, lambda: self.now)
+        original_row = self.service.row
+        first_read = True
+        def interleaved_row(review_id):
+            nonlocal first_read
+            row = original_row(review_id)
+            if first_read:
+                first_read = False
+                self.assertEqual(other.confirm(self.approval(review))['state'], 'SUBMITTED')
+            return row
+        try:
+            with patch.object(self.service, 'row', side_effect=interleaved_row):
+                receipt = self.service.cancel_review(review['id'])
+            self.assertEqual(receipt['state'], 'SUBMITTED')
+            self.assertEqual(self.adapter.calls, 1)
+            self.assertEqual(self.service.db.execute(
+                "SELECT count(*) FROM audit WHERE event='cancelled_review'").fetchone()[0], 0)
+        finally:
+            other.db.close()
+
+    def test_incomplete_fill_quantity_cannot_regress_after_missing_fields_and_restart(self):
+        approval = self.approval(self.review())
+        receipt = self.service.confirm(approval)
+        detail = self.adapter.detail('cash', receipt['client_order_id'])
+        base = {key: value for key, value in detail['orders'][0].items()
+                if key not in ('filled_quantity', 'filled_price')}
+        def refresh(**fields):
+            self.adapter.detail = lambda account, client: {**detail, 'orders': [
+                {**base, 'status': 'PARTIAL_FILLED', **fields}]}
+            return self.service.refresh(approval['id'])
+        self.assertEqual(refresh(filled_quantity='2')['state'], 'PARTIAL_FILLED')
+        self.assertEqual(refresh()['state'], 'PARTIAL_FILLED')
+        self.service.db.close()
+        self.service = WebullService(self.path, self.adapter, lambda: self.now)
+        receipt = refresh(filled_quantity='1', filled_price='100')
+        self.assertIn('decreased cumulative filled quantity', receipt['detail'])
+        self.assertEqual(self.service.execution_summary('cash')['orders'], [])
+        self.assertEqual(refresh(filled_quantity='2', filled_price='100')['state'], 'PARTIAL_FILLED')
+        self.assertEqual(self.service.execution_summary('cash')['orders'][0]['filled_quantity'], '2')
+
+    def test_saved_incomplete_fill_quantity_is_restored_before_a_refresh(self):
+        approval = self.approval(self.review())
+        receipt = self.service.confirm(approval)
+        detail = self.adapter.detail('cash', receipt['client_order_id'])
+        detail['orders'][0].update(status='PARTIAL_FILLED', filled_quantity='2')
+        detail['orders'][0].pop('filled_price')
+        # Simulate a previously saved receipt from the older schema, which had
+        # no complete execution_latest row for this optional-price omission.
+        with self.service.db:
+            self.service.db.execute("UPDATE reviews SET state='PARTIAL_FILLED',result=? WHERE id=?",
+                                    (json.dumps(detail), approval['id']))
+        self.service.db.close()
+        with closing(sqlite3.connect(self.path)) as legacy:
+            legacy.executescript("""
+                ALTER TABLE reviews RENAME TO newer_reviews;
+                CREATE TABLE reviews (
+                    id TEXT PRIMARY KEY, environment TEXT NOT NULL, account TEXT NOT NULL,
+                    body TEXT NOT NULL, preview TEXT NOT NULL, expires REAL NOT NULL,
+                    token_hash TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '{}');
+                INSERT INTO reviews SELECT id,environment,account,body,preview,expires,token_hash,state,result
+                    FROM newer_reviews;
+                DROP TABLE newer_reviews;
+            """)
+        self.service = WebullService(self.path, self.adapter, lambda: self.now)
+        detail['orders'][0].update(filled_quantity='1', filled_price='100')
+        self.adapter.detail = lambda account, client: detail
+        receipt = self.service.refresh(approval['id'])
+        self.assertIn('decreased cumulative filled quantity', receipt['detail'])
+        self.assertEqual(self.service.execution_summary('cash')['orders'], [])
+
     def test_environment_switch_rejects_existing_review(self):
         review = self.review()
         self.adapter.environment = 'production'
@@ -242,6 +316,11 @@ class WebullTests(unittest.TestCase):
         missing = {key: value for key, value in order.items() if key not in ('filled_quantity', 'filled_price')}
         self.adapter.detail = lambda account, client: {**detail, 'orders': [{**missing, 'status': 'SUBMITTED'}]}
         self.assertEqual(self.service.refresh(approval['id'])['state'], 'PARTIAL_FILLED')
+        self.adapter.detail = lambda account, client: {**detail, 'orders': [
+            {**missing, 'status': 'CANCELLED', 'filled_price': '0'}]}
+        rejected = self.service.refresh(approval['id'])
+        self.assertEqual(rejected['state'], 'PARTIAL_FILLED')
+        self.assertIn('Zero fill price conflicted', rejected['detail'])
         self.adapter.detail = lambda account, client: {**detail, 'orders': [{**missing, 'status': 'CANCELLED'}]}
         self.assertEqual(self.service.refresh(approval['id'])['state'], 'CANCELLED')
         self.assertEqual(self.service.execution_summary('cash')['totals']['notional_by_currency']['USD']['sell'], '100')
@@ -253,6 +332,8 @@ class WebullTests(unittest.TestCase):
         for changes in ({'status': 'CANCELLED', 'filled_quantity': '0', 'filled_price': 'NaN'},
                         {'status': 'CANCELLED', 'filled_quantity': '0', 'filled_price': '100'},
                         {'status': 'SUBMITTED', 'filled_quantity': None, 'filled_price': '100'},
+                        {'status': 'FILLED', 'filled_quantity': None, 'filled_price': '0'},
+                        {'status': 'PARTIAL_FILLED', 'filled_quantity': None, 'filled_price': '0'},
                         {'status': 'FILLED', 'filled_quantity': '2', 'filled_price': None}):
             with self.subTest(changes=changes):
                 self.adapter.detail = lambda account, client, changes=changes: {

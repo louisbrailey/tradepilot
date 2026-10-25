@@ -1,5 +1,6 @@
 import io
 import json
+import socket
 import unittest
 from email.message import Message
 from unittest.mock import patch
@@ -89,6 +90,37 @@ class GatewayTests(unittest.TestCase):
         handler.reply = lambda status, payload: responses.append(status)
         handler.do_POST()
         self.assertEqual(responses, [413])
+
+    @patch.dict(server.os.environ, {"APP_ACCESS_TOKEN": "x" * 32})
+    def test_ambiguous_or_truncated_http_requests_fail_before_dispatch(self):
+        cases = (([("Content-Length", "3")], 400),
+                 ([("Content-Length", "2"), ("Content-Length", "2")], 400),
+                 ([("Content-Length", "2"), ("Authorization", "Bearer other")], 401),
+                 ([("Content-Length", "2"), ("Transfer-Encoding", "chunked")], 400))
+        for headers, expected in cases:
+            with self.subTest(headers=headers):
+                handler = server.Handler.__new__(server.Handler)
+                handler.path = "/v1/setup"
+                handler.headers = Message()
+                handler.headers["Authorization"] = "Bearer " + "x" * 32
+                handler.headers["Content-Type"] = "application/json"
+                for name, value in headers:
+                    handler.headers[name] = value
+                handler.rfile = io.BytesIO(b"{}")
+                responses = []
+                handler.reply = lambda status, payload: responses.append(status)
+                with patch.object(server, "setup_status") as setup:
+                    handler.do_POST()
+                self.assertEqual(responses, [expected])
+                setup.assert_not_called()
+
+    def test_gateway_chooses_the_bind_address_family(self):
+        for address, family in (("127.0.0.1", socket.AF_INET), ("::1", socket.AF_INET6)):
+            with self.subTest(address=address), \
+                    patch.object(server.ThreadingHTTPServer, "__init__", return_value=None) as initialize:
+                gateway = server.GatewayHTTPServer((address, 0), server.Handler)
+                self.assertEqual(gateway.address_family, family)
+                initialize.assert_called_once_with((address, 0), server.Handler)
 
     def proposal(self, **changes):
         return {"kind": "trade", "message": "Review this proposal.", "side": "sell", "quantity": "3", "symbol": "AAPL", **changes}

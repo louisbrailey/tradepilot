@@ -40,6 +40,23 @@ class RecordedEvaluationTests(unittest.TestCase):
         report["results"]["SPY"]["evaluation"]["validation"]["screen_passed"] = True
         with self.assertRaises(ValueError): evaluation.project_evaluation(report)
 
+    def test_changed_training_selection_is_rejected_by_locked_digest(self):
+        report = copy.deepcopy(self.report)
+        report["results"]["SPY"]["evaluation"]["training"]["selected_window"] = 50
+        with self.assertRaisesRegex(ValueError, "selection hash"):
+            evaluation.project_evaluation(report)
+
+    def test_stage_boundaries_metric_dates_and_adjustment_provenance_are_verified(self):
+        for defect in ("index", "date", "adjustment", "baseline_fills"):
+            report = copy.deepcopy(self.report)
+            row = report["results"]["SPY"]
+            if defect == "index": row["evaluation"]["final_holdout"]["start_index"] -= 1
+            elif defect == "date": row["evaluation"]["final_holdout"]["baseline"]["from"] += 86400000
+            elif defect == "adjustment": row["source"]["query"]["adjusted"] = False
+            else: row["evaluation"]["final_holdout"]["baseline"]["fills"] += 2
+            with self.subTest(defect=defect), self.assertRaises(ValueError):
+                evaluation.project_evaluation(report)
+
     def test_missing_artifact_and_all_unavailable_do_not_fabricate_results(self):
         with patch.object(evaluation, "REPORT_PATH", Path("/nonexistent/tradepilot-evaluation.json")):
             with self.assertRaisesRegex(ValueError, "unavailable"): evaluation.load_evaluation()

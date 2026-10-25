@@ -13,6 +13,8 @@
 		A00000000000000000000033 /* TradePilot/JournalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* TradePilot/JournalView.swift */; };
 		A00000000000000000000035 /* TradePilot/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000034 /* TradePilot/Assets.xcassets */; };
 		A00000000000000000000037 /* TradePilot/WebullView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* TradePilot/WebullView.swift */; };
+		A00000000000000000000039 /* WorkspaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038; };
+		A00000000000000000000041 /* KronosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000040; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +24,8 @@
 		A00000000000000000000032 /* TradePilot/JournalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/JournalView.swift; sourceTree = "<group>"; };
 		A00000000000000000000034 /* TradePilot/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = TradePilot/Assets.xcassets; sourceTree = "<group>"; };
 		A00000000000000000000036 /* TradePilot/WebullView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/WebullView.swift; sourceTree = "<group>"; };
+		A00000000000000000000038 /* WorkspaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/WorkspaceViews.swift; sourceTree = "<group>"; };
+		A00000000000000000000040 /* KronosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/KronosView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +48,8 @@
 				A00000000000000000000032 /* TradePilot/JournalView.swift */,
 				A00000000000000000000034 /* TradePilot/Assets.xcassets */,
 				A00000000000000000000036 /* TradePilot/WebullView.swift */,
+				A00000000000000000000038 /* WorkspaceViews.swift */,
+				A00000000000000000000040 /* KronosView.swift */,
 				A00000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -134,6 +140,8 @@
 				A00000000000000000000031 /* TradePilot/AIService.swift in Sources */,
 				A00000000000000000000033 /* TradePilot/JournalView.swift in Sources */,
 				A00000000000000000000037 /* TradePilot/WebullView.swift in Sources */,
+				A00000000000000000000039 /* WorkspaceViews.swift in Sources */,
+				A00000000000000000000041 /* KronosView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

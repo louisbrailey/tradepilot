@@ -12,9 +12,13 @@ usage() {
   echo "Optional: set VENV_PYTHON to the private virtualenv Python executable." >&2
 }
 
-if [[ -z "$PRIVATE_DIR" || -z "$LOCAL_IP" || -z "$MARKET_ENV" || "$PRIVATE_DIR" == "-h" || "$PRIVATE_DIR" == "--help" ]]; then
+if [[ "$PRIVATE_DIR" == "-h" || "$PRIVATE_DIR" == "--help" ]]; then
   usage
   exit 0
+fi
+if [[ $# -ne 3 || -z "$PRIVATE_DIR" || -z "$LOCAL_IP" || -z "$MARKET_ENV" ]]; then
+  usage
+  exit 2
 fi
 if [[ ! -d "$PRIVATE_DIR" ]]; then
   echo "Private runtime directory not found: $PRIVATE_DIR" >&2
@@ -37,9 +41,10 @@ if ! command -v "$VENV_PYTHON" >/dev/null 2>&1 && [[ ! -x "$VENV_PYTHON" ]]; the
   exit 2
 fi
 
-exec "$VENV_PYTHON" "$PROJECT_DIR/server/server.py" \
-  --config "$PRIVATE_DIR/config.json" \
+PYTHON_PATH="$(command -v "$VENV_PYTHON")"
+PYTHON_PATH="$(cd "$(dirname "$PYTHON_PATH")" && pwd)/$(basename "$PYTHON_PATH")"
+exec "$PYTHON_PATH" "$PROJECT_DIR/scripts/manage-local-service.py" serve \
+  --private-dir "$PRIVATE_DIR" \
   --market-env "$MARKET_ENV" \
-  --bind "$LOCAL_IP" \
-  --tls-cert "$PRIVATE_DIR/server.pem" \
-  --tls-key "$PRIVATE_DIR/server.key"
+  --address "$LOCAL_IP" \
+  --python "$PYTHON_PATH"

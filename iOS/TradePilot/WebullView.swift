@@ -36,6 +36,13 @@ struct BrokerExecutionTotals: Decodable {
 struct BrokerExecutionNotional: Decodable {
     let buy: String; let sell: String
 }
+struct BrokerConnectionBinding {
+    let endpoint: String
+    let token: String
+    func matches(endpoint: String, token: String) -> Bool {
+        self.endpoint == endpoint && self.token == token
+    }
+}
 enum BrokerValidation {
     static func aiReplyMatches(_ reply: AIReply, account: String, environment: String,
                                now: TimeInterval = Date().timeIntervalSince1970, maxAge: TimeInterval = 120) -> Bool {
@@ -54,13 +61,30 @@ enum BrokerValidation {
         return true
     }
 
-    static func reviewMatches(_ review: BrokerReview, account: String, environment: String?, side: String? = nil, symbol: String? = nil, quantity: String? = nil, now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
+    static func reviewMatches(_ review: BrokerReview, account: String, environment: String?, side: String? = nil, symbol: String? = nil, quantity: String? = nil, orderType: String? = nil, limitPrice: String? = nil, now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
         guard !account.isEmpty, review.account_id == account, environment == review.environment,
-              review.expires_at > now,
+              ["sandbox", "production"].contains(review.environment),
+              !review.id.isEmpty, !review.confirmation_token.isEmpty,
+              review.expires_at.isFinite, review.expires_at > now,
+              review.order["market"] == "US", review.order["instrument_type"] == "EQUITY",
+              review.order["combo_type"] == "NORMAL", review.order["time_in_force"] == "DAY",
+              review.order["support_trading_session"] == "CORE", review.order["entrust_type"] == "QTY",
+              ["MARKET", "LIMIT"].contains(review.order["order_type"] ?? ""),
+              finiteAmount(review.estimated_cost), finiteAmount(review.estimated_fee),
               let receivedSide = review.order["side"], ["BUY", "SELL"].contains(receivedSide),
-              let receivedSymbol = review.order["symbol"], !receivedSymbol.isEmpty,
+              let receivedSymbol = review.order["symbol"], receivedSymbol.range(of: "^[A-Z][A-Z0-9.-]{0,14}$", options: .regularExpression) != nil,
               let receivedQuantity = review.order["quantity"], let receivedDecimal = Decimal(string: receivedQuantity, locale: Locale(identifier: "en_US_POSIX")), receivedDecimal > 0,
               let clientOrderID = review.order["client_order_id"], !clientOrderID.isEmpty else { return false }
+        guard decimal(receivedQuantity, nonnegative: false) else { return false }
+        if review.order["order_type"] == "LIMIT" {
+            guard let price = review.order["limit_price"], decimal(price, nonnegative: false) else { return false }
+        } else if review.order["limit_price"] != nil { return false }
+        if let orderType, review.order["order_type"] != orderType { return false }
+        if let limitPrice {
+            guard decimal(limitPrice, nonnegative: false),
+                  let actual = review.order["limit_price"],
+                  Decimal(string: actual) == Decimal(string: limitPrice) else { return false }
+        }
         if let side, receivedSide != side.uppercased() { return false }
         if let symbol, receivedSymbol.uppercased() != symbol.uppercased() { return false }
         if let quantity {
@@ -90,8 +114,15 @@ enum BrokerValidation {
         }
     }
 
+    private static func finiteAmount(_ raw: String) -> Bool {
+        guard raw.range(of: "^-?[0-9]+(?:\\.[0-9]+)?$", options: .regularExpression) != nil,
+              let value = Decimal(string: raw, locale: Locale(identifier: "en_US_POSIX")) else { return false }
+        return NSDecimalNumber(decimal: value).doubleValue.isFinite
+    }
+
     private static func decimal(_ raw: String, nonnegative: Bool) -> Bool {
-        guard let value = Decimal(string: raw, locale: Locale(identifier: "en_US_POSIX")),
+        guard raw.range(of: "^[0-9]+(?:\\.[0-9]+)?$", options: .regularExpression) != nil,
+              let value = Decimal(string: raw, locale: Locale(identifier: "en_US_POSIX")),
               NSDecimalNumber(decimal: value).doubleValue.isFinite else { return false }
         return nonnegative ? value >= 0 : value > 0
     }
@@ -135,6 +166,7 @@ struct WebullView: View {
     @State private var quantity = ""
     @State private var limit = ""
     @State private var review: BrokerReview?
+    @State private var reviewBinding: BrokerConnectionBinding?
     @State private var receipt: BrokerReceipt?
     @State private var attempted = false
     @State private var busy = false
@@ -207,10 +239,13 @@ struct WebullView: View {
                     Text("Stock purchases and sales only. Review does not submit an order.").font(.caption).foregroundStyle(Palette.muted)
                     Button("Get Webull order preview") { run {
                         journal("request", "Request Webull preview: \(side) \(quantity) \(symbol.uppercased())")
+                        let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
                         var body = ["account_id": account, "symbol": symbol.uppercased(), "side": side, "quantity": quantity]
                         if !limit.isEmpty { body["limit_price"] = limit }
                         let candidate: BrokerReview = try await api("review", body)
-                        try validateReview(candidate, account: account, side: side, symbol: symbol, quantity: quantity)
+                        try validateReview(candidate, account: body["account_id"]!, side: body["side"], symbol: body["symbol"], quantity: body["quantity"], orderType: body["limit_price"] == nil ? "MARKET" : "LIMIT", limitPrice: body["limit_price"])
+                        guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
+                        reviewBinding = binding
                         review = candidate
                         journal("proposal", reviewedOrderText(candidate), reference: candidate.id, accountID: candidate.account_id, environment: candidate.environment)
                         attempted = false; receipt = nil
@@ -228,10 +263,17 @@ struct WebullView: View {
             }
             if busy { ProgressView() }
         }
+        .onChange(of: store.aiEndpoint) { _, _ in invalidateConnection() }
+        .onChange(of: store.aiToken) { _, _ in invalidateConnection() }
         .onChange(of: account) { _, _ in
             portfolioAccount = nil
             executions = nil
         }
+    }
+
+    private func invalidateConnection() {
+        snapshot = nil; portfolioAccount = nil; executions = nil; review = nil; reviewBinding = nil; receipt = nil
+        status = "Connection changed. Load accounts again. Pending orders remain locked for reconciliation."
     }
 
     @ViewBuilder private func portfolioSection(_ snapshot: BrokerSnapshot) -> some View {
@@ -293,9 +335,12 @@ struct WebullView: View {
             try await load()
             status = "Your Webull holdings are in the table above."
         case .trade(let intent):
+            let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
             let candidate: BrokerReview = try await api("review", ["account_id": account, "symbol": intent.symbol,
                 "side": intent.side.rawValue.uppercased(), "quantity": NSDecimalNumber(decimal: intent.quantity).stringValue])
-            try validateReview(candidate, account: account, side: intent.side.rawValue.uppercased(), symbol: intent.symbol, quantity: NSDecimalNumber(decimal: intent.quantity).stringValue)
+            try validateReview(candidate, account: account, side: intent.side.rawValue.uppercased(), symbol: intent.symbol, quantity: NSDecimalNumber(decimal: intent.quantity).stringValue, orderType: "MARKET")
+            guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
+            reviewBinding = binding
             review = candidate
             journal("proposal", reviewedOrderText(candidate), reference: candidate.id, accountID: candidate.account_id, environment: candidate.environment)
             attempted = false; receipt = nil
@@ -311,16 +356,17 @@ struct WebullView: View {
         guard !text.isEmpty, let expectedEnvironment = snapshot?.environment else { return }
         let requestedAccount = account
         let requestedEndpoint = store.aiEndpoint
+        let requestedToken = store.aiToken
         journal("request", text, accountID: requestedAccount, environment: expectedEnvironment)
         let context = store.useJournalContext ? store.journal.entries
             .filter { $0.mode == "webull_" + expectedEnvironment && $0.accountID == requestedAccount }
             .prefix(30).map { ["kind": $0.kind, "text": String($0.text.prefix(1000)),
                 "strategy": $0.strategy, "timestamp": $0.timestamp.ISO8601Format(),
                 "mode": $0.mode, "session": $0.sessionID.uuidString] } : []
-        let reply = try await AIService.askWebull(endpoint: requestedEndpoint, token: store.aiToken,
+        let reply = try await AIService.askWebull(endpoint: requestedEndpoint, token: requestedToken,
             prompt: text, selectedAccount: requestedAccount, expectedEnvironment: expectedEnvironment,
             strategy: store.strategyID, journal: context)
-        guard store.aiEndpoint == requestedEndpoint, account == requestedAccount,
+        guard store.aiEndpoint == requestedEndpoint, store.aiToken == requestedToken, account == requestedAccount,
               snapshot?.environment == expectedEnvironment,
               BrokerValidation.aiReplyMatches(reply, account: requestedAccount, environment: expectedEnvironment) else {
             throw NSError(domain: "TradePilot", code: 22, userInfo: [NSLocalizedDescriptionKey: "The AI response did not match the selected Webull account and environment. Refresh and try again. No order was created."])
@@ -349,7 +395,10 @@ struct WebullView: View {
         prompt = ""
     }
     private func api<T: Decodable>(_ operation: String, _ body: [String: Any]) async throws -> T {
-        try await BrokerAPI.call(operation, endpoint: store.aiEndpoint, token: store.aiToken, body: body)
+        let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+        let result: T = try await BrokerAPI.call(operation, endpoint: binding.endpoint, token: binding.token, body: body)
+        guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
+        return result
     }
     private func run(_ operation: @escaping @MainActor () async throws -> Void) {
         busy = true
@@ -371,10 +420,11 @@ struct WebullView: View {
         guard let expectedEnvironment = snapshot?.environment, !account.isEmpty else { return }
         let requestedAccount = account
         let requestedEndpoint = store.aiEndpoint
+        let requestedToken = store.aiToken
         journal("execution_sync", "Requested APP-TRACKED ONLY execution evidence.", accountID: requestedAccount, environment: expectedEnvironment)
         let ledger: BrokerExecutionLedger = try await BrokerAPI.call("executions", endpoint: requestedEndpoint,
-            token: store.aiToken, body: ["account_id": requestedAccount])
-        guard store.aiEndpoint == requestedEndpoint, account == requestedAccount,
+            token: requestedToken, body: ["account_id": requestedAccount])
+        guard store.aiEndpoint == requestedEndpoint, store.aiToken == requestedToken, account == requestedAccount,
               snapshot?.environment == expectedEnvironment,
               BrokerValidation.executionLedgerMatches(ledger, account: requestedAccount, environment: expectedEnvironment) else {
             throw NSError(domain: "TradePilot", code: 25, userInfo: [NSLocalizedDescriptionKey: "Execution evidence did not match the selected server, account, and environment. Refresh and try again."])
@@ -384,6 +434,7 @@ struct WebullView: View {
         status = "Tracked execution evidence loaded. Notional is not profit or loss."
     }
     private func confirm(_ review: BrokerReview) async throws {
+        guard reviewBinding?.matches(endpoint: store.aiEndpoint, token: store.aiToken) == true else { throw mismatchError() }
         try validateReview(review, account: account)
         // Persist the recovery lock before any approval record or network access.
         pendingID = review.id
@@ -396,11 +447,10 @@ struct WebullView: View {
         guard store.journal.error == nil else {
             status = "Submission is locked for reconciliation because the journal approval could not be saved. \(store.journal.error ?? "Journal unavailable")"; return
         }
-        receipt = try await api("confirm", ["id": review.id, "confirmation_token": review.confirmation_token, "approved": true])
-        if let receipt {
-            try validateReceipt(receipt)
-            journal("submission_result", receipt.state + " " + receipt.detail, reference: review.id, accountID: pendingAccount, environment: pendingEnvironment)
-        }
+        let candidate: BrokerReceipt = try await api("confirm", ["id": review.id, "confirmation_token": review.confirmation_token, "approved": true])
+        try validateReceipt(candidate)
+        receipt = candidate
+        journal("submission_result", candidate.state + " " + candidate.detail, reference: review.id, accountID: pendingAccount, environment: pendingEnvironment)
         self.review = nil
         status = "Request recorded. Refresh broker status to verify the outcome."
     }
@@ -411,20 +461,21 @@ struct WebullView: View {
         guard !pendingAccount.isEmpty, !pendingEnvironment.isEmpty else {
             status = "This pending order lacks the account and environment needed for safe reconciliation. It remains locked."; return
         }
-        receipt = try await api("status", ["id": pendingID])
-        if let receipt { try validateReceipt(receipt) }
-        if receipt?.state == "REVIEW" {
-            receipt = try await api("dismiss", ["id": pendingID])
-            if let receipt { try validateReceipt(receipt) }
+        var candidate: BrokerReceipt = try await api("status", ["id": pendingID])
+        try validateReceipt(candidate)
+        if candidate.state == "REVIEW" {
+            candidate = try await api("dismiss", ["id": pendingID])
+            try validateReceipt(candidate)
         }
+        receipt = candidate
         if let receipt { journal("broker_status", receipt.state + " " + receipt.detail, reference: pendingID, accountID: pendingAccount, environment: pendingEnvironment) }
         if let receipt, ["FILLED", "CANCELLED", "FAILED", "EXPIRED", "CANCELLED_REVIEW"].contains(receipt.state) {
             pendingID = ""; pendingEndpoint = ""; pendingAccount = ""; pendingEnvironment = ""; pendingClientOrder = ""; review = nil; attempted = false
         }
         status = "Broker status refreshed."
     }
-    private func validateReview(_ review: BrokerReview, account expectedAccount: String, side expectedSide: String? = nil, symbol expectedSymbol: String? = nil, quantity expectedQuantity: String? = nil) throws {
-        guard BrokerValidation.reviewMatches(review, account: expectedAccount, environment: snapshot?.environment, side: expectedSide, symbol: expectedSymbol, quantity: expectedQuantity) else {
+    private func validateReview(_ review: BrokerReview, account expectedAccount: String, side expectedSide: String? = nil, symbol expectedSymbol: String? = nil, quantity expectedQuantity: String? = nil, orderType: String? = nil, limitPrice: String? = nil) throws {
+        guard BrokerValidation.reviewMatches(review, account: expectedAccount, environment: snapshot?.environment, side: expectedSide, symbol: expectedSymbol, quantity: expectedQuantity, orderType: orderType, limitPrice: limitPrice) else {
             throw mismatchError()
         }
     }

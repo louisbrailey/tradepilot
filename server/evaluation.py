@@ -2,7 +2,7 @@
 import hashlib
 import json
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 import re
 
@@ -49,14 +49,36 @@ def project_evaluation(report):
                 continue
             source, ev = item["source"], item["evaluation"]
             validation, holdout = ev["validation"], ev["final_holdout"]
+            locked = json.dumps({"training": ev["training"], "validation": validation},
+                                sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+            if hashlib.sha256(locked).hexdigest() != ev["locked_selection_sha256"]:
+                raise ValueError("Evaluation selection hash mismatch")
             v, h = validation["baseline"], holdout["baseline"]
             if source["provider"] != "Massive" or type(source["bar_count"]) is not int or source["bar_count"] < 500:
                 raise ValueError("Invalid evaluation source")
+            count = source["bar_count"]
+            training_stop, validation_stop = count * 3 // 5, count * 4 // 5
+            if (ev["training"]["training_stop_exclusive"] != training_stop
+                    or (validation["start_index"], validation["stop_index_exclusive"]) != (training_stop, validation_stop)
+                    or (holdout["start_index"], holdout["stop_index_exclusive"]) != (validation_stop, count)):
+                raise ValueError("Inconsistent evaluation stage boundaries")
+            query = source["query"]
+            if (query.get("adjusted") is not True or query.get("sort") != "asc"
+                    or query.get("limit") != 50000):
+                raise ValueError("Invalid evaluation adjustment provenance")
             dates = [day(source["first_date"]), day(source["training_end_date"]), day(validation["start_date"]),
                      day(validation["end_date"]), day(holdout["start_date"]), day(holdout["end_date"]), day(source["last_date"])]
-            if not (dates[0] <= dates[1] < dates[2] <= dates[3] < dates[4] <= dates[5] <= dates[6]):
+            if not (day(protocol["requested_start"]) <= dates[0] <= dates[1] < dates[2]
+                    <= dates[3] < dates[4] <= dates[5] == dates[6] <= day(protocol["requested_end"])):
                 raise ValueError("Overlapping evaluation stages")
-            for metrics in (v, h):
+            for period in (validation, holdout):
+                metrics = period["baseline"]
+                actual_dates = [datetime.fromtimestamp(number(metrics[key]) / 1000, timezone.utc).date().isoformat()
+                                for key in ("from", "to")]
+                if actual_dates != [period["start_date"], period["end_date"]]:
+                    raise ValueError("Inconsistent evaluation metric dates")
+                if {key: value for key, value in metrics.items() if key != "excess_return_pct"} != period["cost_sensitivity"]["10"]:
+                    raise ValueError("Inconsistent baseline cost scenario")
                 for field in ("return_pct", "benchmark_price_return_pct", "excess_return_pct", "max_drawdown_pct", "benchmark_max_drawdown_pct"):
                     number(metrics[field])
                 if not math.isclose(metrics["return_pct"] - metrics["benchmark_price_return_pct"], metrics["excess_return_pct"], rel_tol=1e-10, abs_tol=1e-8):
@@ -106,7 +128,7 @@ def project_evaluation(report):
                 "Training, validation and final periods are separate. The final period is already observed and cannot be reused as fresh evidence.",
                 "Seven surviving stocks and ETFs do not establish performance for other markets. Shorts, options, intraday, crypto and FX strategies are not tested.",
                 "This report never activates a strategy or authorizes an order. Prospective paper evaluation is still required."]}
-    except (KeyError, TypeError, OverflowError, AttributeError) as error:
+    except (KeyError, TypeError, OverflowError, AttributeError, OSError) as error:
         raise ValueError("Invalid recorded evaluation") from error
 
 

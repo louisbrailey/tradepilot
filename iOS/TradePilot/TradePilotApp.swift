@@ -5,7 +5,20 @@ import TradeCore
 struct TradePilotApp: App {
     @State private var store = AppStore()
     var body: some Scene {
-        WindowGroup { RootView().environment(store).preferredColorScheme(.dark) }
+        WindowGroup { landing.environment(store).preferredColorScheme(.dark) }
+    }
+    // Debug-only screen selection for simulator visual QA; no account/action overrides.
+    @ViewBuilder private var landing: some View {
+        #if DEBUG
+        let screen = ProcessInfo.processInfo.environment["TRADEPILOT_SCREEN"]
+        if screen == "kronos" { KronosView() }
+        else if screen == "paper" { PaperTradingView() }
+        else if screen == "strategies" { StrategyComparisonView() }
+        else if screen == "coinbase" { CoinbaseView() }
+        else { RootView() }
+        #else
+        RootView()
+        #endif
     }
 }
 
@@ -389,6 +402,8 @@ struct AccountsView: View {
         @Bindable var store = store
         Screen(title: "Accounts") {
             NavigationLink { WebullView() } label: { Label("Open Webull account", systemImage: "building.columns.fill") }.buttonStyle(MintButton())
+            NavigationLink { CoinbaseView() } label: { Label("Coinbase balances", systemImage: "bitcoinsign.circle") }.buttonStyle(MintButton())
+            NavigationLink { PaperTradingView() } label: { Label("Paper trading account", systemImage: "chart.line.uptrend.xyaxis") }.buttonStyle(MintButton())
             Text("Everything you own,\nin one place.").font(.title.bold())
             Text("These are sample accounts. Live connections will depend on the institution’s data and trading permissions.").font(.subheadline).foregroundStyle(Palette.muted)
             ForEach(store.engine.accounts) { a in

@@ -151,7 +151,8 @@ class ExecutionLedger:
             raise ExecutionEvidenceError("Order detail had an unsupported state")
         if order.get("filled_quantity") is None and allow_incomplete:
             if order.get("filled_price") is not None:
-                price = _decimal(order["filled_price"], "average fill price")
+                price = _decimal(order["filled_price"], "average fill price",
+                                 allow_zero=state not in {"FILLED", "PARTIAL_FILLED"})
                 if state in {"PENDING", "SUBMITTED"} and price > 0:
                     raise ExecutionEvidenceError("Open order state conflicted with a positive fill price")
             return None, None

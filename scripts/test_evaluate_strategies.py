@@ -1,10 +1,13 @@
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("evaluation", Path(__file__).with_name("evaluate-strategies.py"))
 evaluation = importlib.util.module_from_spec(spec)
@@ -83,7 +86,7 @@ class EvaluationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             cache = evaluation.private_directory(directory)
             client = Mock(); client.get.return_value = {"available": True, "partial_page": False,
-                "results": self.bars(), "request_id": "test-request"}
+                "results": self.bars(), "request_id": "test-request", "adjusted": True}
             first = evaluation.acquire(client, "TEST", "2022-01-01", "2024-01-01", cache, False)
             replay = evaluation.acquire(None, "TEST", "2022-01-01", "2024-01-01", cache, True)
             self.assertEqual(first["rows"], replay["rows"])
@@ -94,6 +97,76 @@ class EvaluationTests(unittest.TestCase):
             path.write_text(json.dumps(payload))
             with self.assertRaisesRegex(ValueError, "hash mismatch"):
                 evaluation.acquire(None, "TEST", "2022-01-01", "2024-01-01", cache, True)
+
+    def test_malformed_rows_and_extreme_timestamps_fail_as_validation_errors(self):
+        rows = self.bars(); rows[5] = None
+        with self.assertRaisesRegex(ValueError, "objects"):
+            evaluation.validated_bars(rows, "2022-01-01", "2024-01-01")
+        rows = self.bars(); rows[-1]["t"] = 1e30
+        with self.assertRaisesRegex(ValueError, "timestamp"):
+            evaluation.validated_bars(rows, "2022-01-01", "2024-01-01")
+
+    def test_unconfirmed_adjustments_are_refused_and_legacy_cache_stays_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = evaluation.private_directory(directory)
+            client = Mock()
+            for flag in (None, False, 1):
+                client.get.return_value = {"available": True, "partial_page": False,
+                    "results": self.bars(), "adjusted": flag}
+                with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "split-adjusted"):
+                    evaluation.acquire(client, "TEST", "2022-01-01", "2024-01-01", cache, False)
+            client.get.return_value["adjusted"] = True
+            payload = evaluation.acquire(client, "TEST", "2022-01-01", "2024-01-01", cache, False)
+            self.assertIs(payload["adjusted"], True)
+            path = next(cache.glob("TEST-*.json"))
+            del payload["adjusted"]; path.write_text(json.dumps(payload))
+            self.assertIsNone(evaluation.acquire(None, "TEST", "2022-01-01", "2024-01-01", cache, True).get("adjusted"))
+
+    def test_private_record_reader_rejects_public_nonobject_and_nonregular_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "record.json"
+            evaluation.private_json(path, {})
+            path.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "owner-only"):
+                evaluation.read_private_json(path)
+            path.chmod(0o600); path.write_text("[]")
+            with self.assertRaisesRegex(ValueError, "object"):
+                evaluation.read_private_json(path)
+            path.write_text("invalid-json")
+            with self.assertRaisesRegex(ValueError, "JSON record"):
+                evaluation.read_private_json(path)
+            link = Path(directory) / "link.json"; link.symlink_to(path)
+            with self.assertRaises(OSError): evaluation.read_private_json(link)
+            fifo = Path(directory) / "fifo.json"; os.mkfifo(fifo, 0o600)
+            with self.assertRaisesRegex(ValueError, "regular"):
+                evaluation.read_private_json(fifo)
+
+    def test_corrupt_frozen_protocol_is_not_silently_reused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = evaluation.private_directory(directory)
+            protocol = evaluation.protocol(evaluation.SYMBOLS, "2022-01-01", "2024-01-01")
+            path = cache / ("protocol-" + evaluation.digest(protocol) + ".json")
+            changed = dict(protocol, windows=[1, 2, 3])
+            evaluation.private_json(path, {"protocol": changed})
+            with self.assertRaisesRegex(ValueError, "protocol content mismatch"):
+                evaluation.main(["--cache-dir", directory, "--start", "2022-01-01",
+                                 "--end", "2024-01-01", "--offline", "--output-dir", directory])
+
+    def test_concurrent_overlapping_observations_have_only_one_first_observation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = evaluation.private_directory(directory)
+            rendezvous = threading.Barrier(2)
+            original_write = evaluation.private_json
+            def delayed_write(path, payload):
+                # Expose the old scan/write race; the lock serializes this boundary.
+                try: rendezvous.wait(timeout=0.05)
+                except threading.BrokenBarrierError: pass
+                original_write(path, payload)
+            with patch.object(evaluation, "private_json", side_effect=delayed_write), ThreadPoolExecutor(2) as pool:
+                futures = [pool.submit(evaluation.mark_observation, cache, "TEST", start, end, "v1", "now")
+                           for start, end in (("2025-01-01", "2025-12-01"), ("2025-06-01", "2026-01-01"))]
+                self.assertEqual(sorted(future.result() for future in futures), [False, True])
+            self.assertEqual(len(list(cache.glob("observed-*.json"))), 2)
 
     def test_public_report_omits_raw_prices_and_explains_all_failures(self):
         report = {"evaluated_at": "test", "protocol_sha256": "test", "protocol":

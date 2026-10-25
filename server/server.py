@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 import re
+import socket
 import time
 import threading
 from research import Massive, load_market_env, summarize
@@ -16,6 +17,9 @@ from urllib.request import Request, urlopen, build_opener, ProxyHandler, HTTPRed
 from pathlib import Path
 from webull_service import BrokerError, WebullAdapter, WebullService
 from evaluation import load_evaluation
+from workspace_service import workspace_request, WORKSPACE_ROUTES
+from network_watch import watch_interface
+from kronos_service import request as kronos_request, KronosError
 
 _broker = None
 _broker_lock = threading.Lock()
@@ -23,7 +27,7 @@ _local_ai_lock = threading.Lock()
 
 
 def load_private_config(path):
-    allowed = {"WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "TRADEPILOT_RUNTIME"}
+    allowed = {"KRONOS_HOME", "KRONOS_PYTHON", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY"}
     config = Path(path)
     if config.stat().st_mode & 0o077:
         raise ValueError("Private config must have permissions 600")
@@ -67,12 +71,14 @@ def setup_status():
     """Configuration readiness only; never implies provider authentication succeeded."""
     provider, model, configured = ai_configuration()
     return {
-        "version": "tradepilot-personal-v3", "checked_at": time.time(),
+        "version": "tradepilot-personal-v4", "checked_at": time.time(),
         "ai_configured": configured, "ai_provider": provider, "ai_model": model,
         "market_data_configured": bool(os.environ.get("MASSIVE_API_KEY") or os.environ.get("POLYGON_API_KEY")),
         "webull_configured": bool(os.environ.get("WEBULL_APP_KEY") and os.environ.get("WEBULL_APP_SECRET")),
         "webull_environment": os.environ.get("WEBULL_ENV", "sandbox"),
         "live_trading_enabled": os.environ.get("WEBULL_LIVE_TRADING") == "enabled",
+        "coinbase_configured": bool(os.environ.get("COINBASE_API_KEY_NAME", "").strip() and os.environ.get("COINBASE_API_PRIVATE_KEY", "").strip()),
+        "paper_trading_available": True, "coinbase_read_only": True,
         "configuration_only": True,
     }
 
@@ -333,6 +339,35 @@ def assistant(payload):
     return model_reply(context, INSTRUCTIONS)
 
 
+class GatewayHTTPServer(ThreadingHTTPServer):
+    # Finish in-flight requests before a network-change restart.
+    daemon_threads = False
+    def __init__(self, address, handler):
+        self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
+        super().__init__(address, handler)
+
+
+def serve_with_network_watch(service, address, interface=None, watcher=watch_interface):
+    stopped, changed = threading.Event(), threading.Event()
+    worker = None
+    def restart():
+        changed.set()
+        service.shutdown()
+    if interface:
+        if not re.fullmatch(r"en[0-9]{1,2}", interface):
+            raise ValueError("Invalid network interface")
+        worker = threading.Thread(target=watcher, args=(interface, address, stopped, restart), daemon=True)
+        worker.start()
+    try:
+        service.serve_forever()
+    finally:
+        stopped.set()
+        service.server_close()  # Non-daemon request workers join here before copying/restarting state.
+        if worker:
+            worker.join(timeout=11)
+    return 75 if changed.is_set() else 0
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "TradePilotDev"
 
@@ -353,18 +388,27 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
-        if self.path not in ("/v1/setup", "/v1/assistant", "/v1/research", "/v1/research/evaluation", "/v1/webull/state", "/v1/webull/executions", "/v1/webull/review", "/v1/webull/confirm", "/v1/webull/status", "/v1/webull/dismiss"):
+        if self.path not in WORKSPACE_ROUTES + ("/v1/kronos/status", "/v1/kronos/replay", "/v1/setup", "/v1/assistant", "/v1/research", "/v1/research/evaluation", "/v1/webull/state", "/v1/webull/executions", "/v1/webull/review", "/v1/webull/confirm", "/v1/webull/status", "/v1/webull/dismiss"):
             return self.reply(404, {"error": "Not found"})
         expected = os.environ.get("APP_ACCESS_TOKEN", "")
-        if len(expected) < 32 or not hmac.compare_digest(self.headers.get("Authorization", "").encode(), ("Bearer " + expected).encode()):
+        authorization = self.headers.get_all("Authorization", [])
+        if (len(expected) < 32 or len(authorization) != 1 or
+                not hmac.compare_digest(authorization[0].encode(), ("Bearer " + expected).encode())):
             return self.reply(401, {"error": "Unauthorized"})
-        if self.headers.get("Transfer-Encoding") or self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+        lengths = self.headers.get_all("Content-Length", [])
+        if (self.headers.get_all("Transfer-Encoding") or len(lengths) != 1 or
+                not re.fullmatch(r"[0-9]+", lengths[0]) or
+                len(self.headers.get_all("Content-Type", [])) != 1 or
+                self.headers.get("Content-Type", "").split(";")[0] != "application/json"):
             return self.reply(400, {"error": "Expected JSON with Content-Length"})
         try:
-            size = int(self.headers.get("Content-Length", "0"))
+            size = int(lengths[0])
             if not 0 < size <= 65536:
                 return self.reply(413, {"error": "Request too large or empty"})
-            payload = json.loads(self.rfile.read(size))
+            raw = self.rfile.read(size)
+            if len(raw) != size:
+                raise ValueError("Incomplete request body")
+            payload = json.loads(raw)
             if self.path == "/v1/setup":
                 if not isinstance(payload, dict) or payload:
                     raise ValueError("Expected an empty setup request")
@@ -373,6 +417,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(payload, dict) or payload:
                     raise ValueError("Expected an empty evaluation request")
                 result = load_evaluation()
+            elif self.path.startswith("/v1/kronos/"):
+                result = kronos_request(self.path, payload)
+            elif self.path in WORKSPACE_ROUTES:
+                result = workspace_request(self.path, payload)
             elif self.path.startswith("/v1/webull/"):
                 result = broker_request(self.path, payload)
             elif self.path == "/v1/research":
@@ -382,6 +430,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = {"summary": summarize(report)}
             else:
                 result = assistant(payload)
+        except KronosError as error:
+            return self.reply(503, {"error": str(error)})
         except BrokerError as error:
             return self.reply(409, {"error": str(error)})
         except (ValueError, TypeError):
@@ -397,6 +447,7 @@ if __name__ == "__main__":
     parser.add_argument("--market-env", help="Existing .env containing MASSIVE_API_KEY or POLYGON_API_KEY")
     parser.add_argument("--config", help="Private JSON configuration outside the source folder (chmod 600)")
     parser.add_argument("--bind", default="127.0.0.1", help="Interface address; non-loopback requires TLS")
+    parser.add_argument("--interface", help="Monitor a macOS LAN interface and restart gracefully on address change")
     parser.add_argument("--tls-cert", help="TLS certificate PEM")
     parser.add_argument("--tls-key", help="TLS private key PEM")
     args = parser.parse_args()
@@ -411,7 +462,7 @@ if __name__ == "__main__":
     os.umask(0o077)
     if args.bind not in ("127.0.0.1", "::1") and not (args.tls_cert and args.tls_key):
         raise SystemExit("Non-loopback access requires TLS.")
-    service = ThreadingHTTPServer((args.bind, 8787), Handler)
+    service = GatewayHTTPServer((args.bind, 8787), Handler)
     if args.tls_cert and args.tls_key:
         import ssl
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -419,4 +470,4 @@ if __name__ == "__main__":
         context.load_cert_chain(args.tls_cert, args.tls_key)
         service.socket = context.wrap_socket(service.socket, server_side=True)
     print("TradePilot private gateway started; Webull execution requires a separate approved review.")
-    service.serve_forever()
+    raise SystemExit(serve_with_network_watch(service, args.bind, args.interface))

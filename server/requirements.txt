@@ -1,1 +1,4 @@
 webull-openapi-python-sdk==3.0.0
+
+# Explicit dependency for Coinbase ES256 signing and local TLS pairing.
+cryptography>=41

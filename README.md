@@ -4,6 +4,8 @@ A native iPhone assistant for reviewing portfolios, preparing explicitly confirm
 
 **Current verified status:** see [LATEST-STATUS.md](LATEST-STATUS.md). The app runs in Apple’s iPhone simulator with working local AI and real Massive research. Physical-phone installation and Webull account authorization remain blocked. Live trading is disabled.
 
+Kronos is available under **Research → Kronos forecasting lab** for local historical forecasts and baseline comparisons. See [Kronos setup and verification](KRONOS.md).
+
 ## Included
 
 - SwiftUI overview, portfolio table, assistant, research/journal, and Webull account screens.

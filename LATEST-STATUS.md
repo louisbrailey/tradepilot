@@ -1,4 +1,16 @@
-# TradePilot — verified September 12, 2026
+# October 1, 2026 — Kronos feature
+
+Added the native Kronos research lab and deployed its authenticated gateway endpoint. Real model and market-data replay passed; simulator build installed and launched. Simulator GUI and physical iPhone verification remain unavailable. No automatic trading enabled. See [Kronos evidence and limitations](KRONOS.md).
+
+# TradePilot — source reviewed September 23, 2026
+
+The current source is `/Users/louisbrailey/tradepilot`. The latest independent review fixed order-state races, fill-regression handling, iPhone request/account binding, gateway parsing, research provenance and private setup. The combined gate passes 148 tests plus Swift smoke checks; both native architecture builds pass. An offline replay and 119 independent accounting checks reproduce the existing backtest without changing its results. No candidate both passed validation and beat its final benchmark.
+
+Claude Code was actually invoked but returned a sign-in error; Claude has not reviewed this revision. Physical iPhone installation, production brokerage authentication and the broader multi-broker/strategy scope remain unfinished. Source changes have not been deployed. See the [September 23 review, evidence and remaining work](reports/review-2026-09-23/REVIEW.md) and [Claude handoff](reports/review-2026-09-23/CLAUDE-HANDOFF.md).
+
+The September 12 observations below describe the previously tested runtime. They have not all been reverified on September 23 and must not be read as current deployment status.
+
+## Previous runtime verification — September 12, 2026
 
 ## Working now
 

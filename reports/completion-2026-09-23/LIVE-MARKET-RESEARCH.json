@@ -1,0 +1,335 @@
+{
+  "version": "daily-comparison-v1",
+  "evidence": "exploratory_previously_observed",
+  "scope": "Exploratory comparison of already-observed history, not unseen evidence. Fixed rules; no selection or tuning. Independent $10,000 fractional long/cash portfolios per stage. Prior-bar signals, next-open fills, final-close liquidation. Price returns only; no dividends, taxes, cash interest, market impact, shorts, options, FX, crypto, intraday or news strategy modeling.",
+  "bars": 1030,
+  "input_sha256": "449e51334b07b5979c89069b7773fa1439797823c76066688316a7fe4b8fd53e",
+  "stages": {
+    "validation": {
+      "start_index": 618,
+      "stop_index_exclusive": 824,
+      "start_date": "2025-01-31",
+      "end_date": "2025-11-24"
+    },
+    "final": {
+      "start_index": 824,
+      "stop_index_exclusive": 1030,
+      "start_date": "2025-11-25",
+      "end_date": "2026-09-22"
+    }
+  },
+  "strategies": [
+    {
+      "strategy": "trend_sma_20_50",
+      "version": "1",
+      "rule": "Long when prior 20-close mean exceeds prior 50-close mean; otherwise cash.",
+      "validation": {
+        "baseline": {
+          "return_pct": 14.825147366102232,
+          "max_drawdown_pct": 17.009803137065717,
+          "fills": 6,
+          "ending_equity": 11482.514736610223,
+          "benchmark_price_return_pct": 11.399616201590423,
+          "benchmark_max_drawdown_pct": 30.317669708421768,
+          "excess_return_pct": 3.42553116451181
+        },
+        "cost_scenarios": {
+          "0": {
+            "return_pct": 15.516169473897179,
+            "max_drawdown_pct": 16.677177430827207,
+            "fills": 6,
+            "ending_equity": 11551.616947389717,
+            "benchmark_price_return_pct": 11.622638456248247,
+            "benchmark_max_drawdown_pct": 30.24798737813018,
+            "excess_return_pct": 3.8935310176489324
+          },
+          "10": {
+            "return_pct": 14.825147366102232,
+            "max_drawdown_pct": 17.009803137065717,
+            "fills": 6,
+            "ending_equity": 11482.514736610223,
+            "benchmark_price_return_pct": 11.399616201590423,
+            "benchmark_max_drawdown_pct": 30.317669708421768,
+            "excess_return_pct": 3.42553116451181
+          },
+          "25": {
+            "return_pct": 13.796354209797524,
+            "max_drawdown_pct": 17.506255086505206,
+            "fills": 6,
+            "ending_equity": 11379.635420979752,
+            "benchmark_price_return_pct": 11.065917067439045,
+            "benchmark_max_drawdown_pct": 30.421932546763276,
+            "excess_return_pct": 2.730437142358479
+          },
+          "50": {
+            "return_pct": 12.102122692621498,
+            "max_drawdown_pct": 18.327093473879096,
+            "fills": 6,
+            "ending_equity": 11210.212269262149,
+            "benchmark_price_return_pct": 10.511965436783077,
+            "benchmark_max_drawdown_pct": 30.595012316547443,
+            "excess_return_pct": 1.5901572558384203
+          }
+        }
+      },
+      "final": {
+        "baseline": {
+          "return_pct": -0.7708926461331589,
+          "max_drawdown_pct": 18.286561086625518,
+          "fills": 10,
+          "ending_equity": 9922.910735386684,
+          "benchmark_price_return_pct": 23.17767240207027,
+          "benchmark_max_drawdown_pct": 13.822984730423848,
+          "excess_return_pct": -23.94856504820343
+        },
+        "cost_scenarios": {
+          "0": {
+            "return_pct": 0.2263767964741259,
+            "max_drawdown_pct": 17.9590526415904,
+            "fills": 10,
+            "ending_equity": 10022.637679647412,
+            "benchmark_price_return_pct": 23.42427434882117,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -23.197897552347044
+          },
+          "10": {
+            "return_pct": -0.7708926461331589,
+            "max_drawdown_pct": 18.286561086625518,
+            "fills": 10,
+            "ending_equity": 9922.910735386684,
+            "benchmark_price_return_pct": 23.17767240207027,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -23.94856504820343
+          },
+          "25": {
+            "return_pct": -2.2482263549696624,
+            "max_drawdown_pct": 18.775375399368354,
+            "fills": 10,
+            "ending_equity": 9775.177364503033,
+            "benchmark_price_return_pct": 22.80869193311632,
+            "benchmark_max_drawdown_pct": 13.82298473042386,
+            "excess_return_pct": -25.056918288085985
+          },
+          "50": {
+            "return_pct": -4.661761004968534,
+            "max_drawdown_pct": 19.583585645395452,
+            "fills": 10,
+            "ending_equity": 9533.823899503146,
+            "benchmark_price_return_pct": 22.19617211649463,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -26.857933121463162
+          }
+        }
+      }
+    },
+    {
+      "strategy": "breakout_20",
+      "version": "1",
+      "rule": "Enter when prior close exceeds the preceding 20 closes (excluding signal close); exit below their minimum; otherwise retain position.",
+      "validation": {
+        "baseline": {
+          "return_pct": 17.559944344021815,
+          "max_drawdown_pct": 9.517929987859164,
+          "fills": 6,
+          "ending_equity": 11755.994434402182,
+          "benchmark_price_return_pct": 11.399616201590423,
+          "benchmark_max_drawdown_pct": 30.317669708421768,
+          "excess_return_pct": 6.160328142431393
+        },
+        "cost_scenarios": {
+          "0": {
+            "return_pct": 18.267424564132973,
+            "max_drawdown_pct": 9.427357345204367,
+            "fills": 6,
+            "ending_equity": 11826.742456413298,
+            "benchmark_price_return_pct": 11.622638456248247,
+            "benchmark_max_drawdown_pct": 30.24798737813018,
+            "excess_return_pct": 6.644786107884727
+          },
+          "10": {
+            "return_pct": 17.559944344021815,
+            "max_drawdown_pct": 9.517929987859164,
+            "fills": 6,
+            "ending_equity": 11755.994434402182,
+            "benchmark_price_return_pct": 11.399616201590423,
+            "benchmark_max_drawdown_pct": 30.317669708421768,
+            "excess_return_pct": 6.160328142431393
+          },
+          "25": {
+            "return_pct": 16.50664836338549,
+            "max_drawdown_pct": 9.653788951841369,
+            "fills": 6,
+            "ending_equity": 11650.664836338548,
+            "benchmark_price_return_pct": 11.065917067439045,
+            "benchmark_max_drawdown_pct": 30.421932546763276,
+            "excess_return_pct": 5.440731295946446
+          },
+          "50": {
+            "return_pct": 14.772065239097687,
+            "max_drawdown_pct": 9.93590045236692,
+            "fills": 6,
+            "ending_equity": 11477.206523909768,
+            "benchmark_price_return_pct": 10.511965436783077,
+            "benchmark_max_drawdown_pct": 30.595012316547443,
+            "excess_return_pct": 4.26009980231461
+          }
+        }
+      },
+      "final": {
+        "baseline": {
+          "return_pct": -0.475548070080567,
+          "max_drawdown_pct": 14.520851155646163,
+          "fills": 10,
+          "ending_equity": 9952.445192991943,
+          "benchmark_price_return_pct": 23.17767240207027,
+          "benchmark_max_drawdown_pct": 13.822984730423848,
+          "excess_return_pct": -23.65322047215084
+        },
+        "cost_scenarios": {
+          "0": {
+            "return_pct": 0.5246896358578779,
+            "max_drawdown_pct": 14.178249699958844,
+            "fills": 10,
+            "ending_equity": 10052.468963585787,
+            "benchmark_price_return_pct": 23.42427434882117,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -22.899584712963293
+          },
+          "10": {
+            "return_pct": -0.475548070080567,
+            "max_drawdown_pct": 14.520851155646163,
+            "fills": 10,
+            "ending_equity": 9952.445192991943,
+            "benchmark_price_return_pct": 23.17767240207027,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -23.65322047215084
+          },
+          "25": {
+            "return_pct": -1.9572789009870029,
+            "max_drawdown_pct": 15.03219215355095,
+            "fills": 10,
+            "ending_equity": 9804.2721099013,
+            "benchmark_price_return_pct": 22.80869193311632,
+            "benchmark_max_drawdown_pct": 13.82298473042386,
+            "excess_return_pct": -24.765970834103324
+          },
+          "50": {
+            "return_pct": -4.3779971726770945,
+            "max_drawdown_pct": 15.877648235639452,
+            "fills": 10,
+            "ending_equity": 9562.20028273229,
+            "benchmark_price_return_pct": 22.19617211649463,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -26.574169289171724
+          }
+        }
+      }
+    },
+    {
+      "strategy": "mean_reversion_20",
+      "version": "1",
+      "rule": "Enter when prior close is at least 2% below prior 20-close mean; exit when prior close reaches that mean; otherwise retain position.",
+      "validation": {
+        "baseline": {
+          "return_pct": 31.22521872195234,
+          "max_drawdown_pct": 13.242555028212832,
+          "fills": 16,
+          "ending_equity": 13122.521872195235,
+          "benchmark_price_return_pct": 11.399616201590423,
+          "benchmark_max_drawdown_pct": 30.317669708421768,
+          "excess_return_pct": 19.82560252036192
+        },
+        "cost_scenarios": {
+          "0": {
+            "return_pct": 33.341709703220765,
+            "max_drawdown_pct": 12.89483014628675,
+            "fills": 16,
+            "ending_equity": 13334.170970322077,
+            "benchmark_price_return_pct": 11.622638456248247,
+            "benchmark_max_drawdown_pct": 30.24798737813018,
+            "excess_return_pct": 21.71907124697252
+          },
+          "10": {
+            "return_pct": 31.22521872195234,
+            "max_drawdown_pct": 13.242555028212832,
+            "fills": 16,
+            "ending_equity": 13122.521872195235,
+            "benchmark_price_return_pct": 11.399616201590423,
+            "benchmark_max_drawdown_pct": 30.317669708421768,
+            "excess_return_pct": 19.82560252036192
+          },
+          "25": {
+            "return_pct": 28.11329580522104,
+            "max_drawdown_pct": 13.761542864279408,
+            "fills": 16,
+            "ending_equity": 12811.329580522104,
+            "benchmark_price_return_pct": 11.065917067439045,
+            "benchmark_max_drawdown_pct": 30.421932546763276,
+            "excess_return_pct": 17.047378737781994
+          },
+          "50": {
+            "return_pct": 23.08982982103991,
+            "max_drawdown_pct": 14.619642301504888,
+            "fills": 16,
+            "ending_equity": 12308.982982103991,
+            "benchmark_price_return_pct": 10.511965436783077,
+            "benchmark_max_drawdown_pct": 30.595012316547443,
+            "excess_return_pct": 12.577864384256833
+          }
+        }
+      },
+      "final": {
+        "baseline": {
+          "return_pct": 0.6800317555229141,
+          "max_drawdown_pct": 12.711522995480461,
+          "fills": 10,
+          "ending_equity": 10068.00317555229,
+          "benchmark_price_return_pct": 23.17767240207027,
+          "benchmark_max_drawdown_pct": 13.822984730423848,
+          "excess_return_pct": -22.497640646547357
+        },
+        "cost_scenarios": {
+          "0": {
+            "return_pct": 1.6918832356783486,
+            "max_drawdown_pct": 12.18621761813522,
+            "fills": 10,
+            "ending_equity": 10169.188323567834,
+            "benchmark_price_return_pct": 23.42427434882117,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -21.732391113142825
+          },
+          "10": {
+            "return_pct": 0.6800317555229141,
+            "max_drawdown_pct": 12.711522995480461,
+            "fills": 10,
+            "ending_equity": 10068.00317555229,
+            "benchmark_price_return_pct": 23.17767240207027,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -22.497640646547357
+          },
+          "25": {
+            "return_pct": -0.8189034731166389,
+            "max_drawdown_pct": 13.493597217255171,
+            "fills": 10,
+            "ending_equity": 9918.109652688336,
+            "benchmark_price_return_pct": 22.80869193311632,
+            "benchmark_max_drawdown_pct": 13.82298473042386,
+            "excess_return_pct": -23.62759540623296
+          },
+          "50": {
+            "return_pct": -3.267728739057818,
+            "max_drawdown_pct": 14.781528408458733,
+            "fills": 10,
+            "ending_equity": 9673.227126094218,
+            "benchmark_price_return_pct": 22.19617211649463,
+            "benchmark_max_drawdown_pct": 13.822984730423848,
+            "excess_return_pct": -25.46390085555245
+          }
+        }
+      }
+    }
+  ],
+  "ticker": "AAPL",
+  "source": "Massive split-adjusted daily bars",
+  "retrieved_at": 1790197008.852837
+}

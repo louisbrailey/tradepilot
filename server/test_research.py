@@ -104,22 +104,58 @@ class ResearchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 research.walk_forward(bars)
 
+    def test_daily_bar_shapes_types_and_duplicate_dates_are_rejected(self):
+        for field, value in (("o", True), ("c", "150.0"), ("t", 1e30)):
+            bars = self.bars(); bars[100][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                research.walk_forward(bars)
+        bars = self.bars(); bars[100] = None
+        with self.assertRaisesRegex(ValueError, "objects"):
+            research.walk_forward(bars)
+        bars = self.bars(); bars[100]["t"] = bars[99]["t"] + 1
+        with self.assertRaisesRegex(ValueError, "Duplicate daily"):
+            research.walk_forward(bars)
+
+    def test_research_rejects_provider_bars_outside_requested_range_and_bad_ohlc(self):
+        from datetime import datetime, timedelta, timezone
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        bars = [{"t": (today - timedelta(days=200-i)).timestamp() * 1000,
+                 "o": 100+i, "c": 100.5+i, "h": 101+i, "l": 99+i} for i in range(200)]
+        for defect in ("outside_range", "invalid_high", "unadjusted", "missing_adjustment"):
+            altered = [dict(row) for row in bars]
+            if defect == "outside_range": altered[-1]["t"] = today.timestamp() * 1000
+            elif defect == "invalid_high": altered[-1]["h"] = 1
+            def response(path, params):
+                return {"available": True, "partial_page": False,
+                        "adjusted": False if defect == "unadjusted" else None if defect == "missing_adjustment" else True,
+                        "results": altered if "/aggs/" in path else []}
+            with patch.object(research.Massive, "get", side_effect=response):
+                result = research.Massive("test-secret").research("TEST")
+            self.assertFalse(result["experiment"]["available"], defect)
+            self.assertIn("failed validation", result["experiment"]["reason"])
+
     def test_key_stays_out_of_url(self):
         opener = unittest.mock.Mock()
-        opener.open.return_value = io.BytesIO(json.dumps({"results": [], "status": "OK"}).encode())
+        opener.open.return_value = io.BytesIO(json.dumps({"results": [], "status": "OK", "adjusted": True}).encode())
         with patch.object(research, "build_opener", return_value=opener):
-            research.Massive("test-secret").get("/stocks/v1/dividends", {"ticker": "AAPL"})
+            result = research.Massive("test-secret").get("/stocks/v1/dividends", {"ticker": "AAPL"})
+        self.assertIs(result["adjusted"], True)
         request = opener.open.call_args.args[0]
         self.assertNotIn("test-secret", request.full_url)
         self.assertEqual(request.get_header("Authorization"), "Bearer test-secret")
 
     def test_denied_entitlement_is_not_fabricated_data(self):
         opener = unittest.mock.Mock()
-        opener.open.side_effect = HTTPError("https://api.massive.com", 403, "denied", {}, None)
+        response_body = io.BytesIO(b"provider response")
+        error = HTTPError("https://api.massive.com", 403, "denied", {}, response_body)
+        opener.open.side_effect = error
         with patch.object(research, "build_opener", return_value=opener):
             result = research.Massive("test-secret").get("/stocks/v1/dividends", {})
         self.assertFalse(result["available"])
         self.assertNotIn("results", result)
+        self.assertEqual(result["reason"], "Provider HTTP 403")
+        self.assertTrue(response_body.closed)
+        self.assertTrue(error.closed)
 
     def test_arbitrary_url_cannot_be_a_ticker(self):
         with self.assertRaises(ValueError):

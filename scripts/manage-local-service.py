@@ -12,9 +12,11 @@ import os
 import plistlib
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
+import time
 from typing import NoReturn
 from pathlib import Path
 
@@ -84,8 +86,8 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Path | str]:
     cert = private_dir / "server.pem"
     key = private_dir / "server.key"
     for path, description in ((config, "private config"), (cert, "TLS certificate"), (key, "TLS private key")):
-        if not path.is_file():
-            fail(f"missing {description}: {path}")
+        if path.is_symlink() or not path.is_file():
+            fail(f"{description} must be an ordinary file: {path}")
     check_private_mode(config, "private config")
     check_private_mode(key, "TLS private key")
     raw_address = getattr(args, "address", None)
@@ -96,6 +98,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Path | str]:
         fail("provide exactly one of --address or --hostname")
     if hostname and not getattr(args, "interface", None):
         fail("--interface is required with --hostname")
+    validate_tls_material(cert, key)
     if hostname:
         validate_cert_san(cert, hostname=hostname)
     else:
@@ -105,8 +108,26 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Path | str]:
             "interface": validate_interface(getattr(args, "interface", None)) if getattr(args, "interface", None) else ""}
 
 
+def validate_tls_material(cert: Path, key: Path) -> None:
+    """Reject unusable TLS material before replacing a running launch agent."""
+    try:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # A password callback prevents an encrypted key from prompting unattended.
+        context.load_cert_chain(str(cert), str(key), password=lambda: "")
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert), "-noout", "-dates"],
+            check=True, capture_output=True, text=True, timeout=10,
+        )
+        dates = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+        now = time.time()
+        if not ssl.cert_time_to_seconds(dates["notBefore"]) <= now < ssl.cert_time_to_seconds(dates["notAfter"]):
+            fail("TLS certificate is expired or not yet valid; renew and re-pair deliberately")
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        fail("TLS certificate/key are invalid, mismatched, encrypted, or could not be inspected")
+
+
 def validate_cert_san(cert: Path, address: str | None = None, hostname: str | None = None) -> None:
-    """Require an IP SAN matching the bind address, using the system openssl."""
+    """Require the requested IP or DNS SAN, using the system openssl."""
     try:
         result = subprocess.run(
             ["openssl", "x509", "-in", str(cert), "-noout", "-text"],
@@ -201,14 +222,15 @@ def discover_interface_address(interface: str) -> str:
 
 def serve(args: argparse.Namespace) -> None:
     values = validate_inputs(args)
-    address = discover_interface_address(str(values["interface"]))
-    # Hostname mode deliberately checks the DNS SAN, while the discovered LAN
-    # address is used only as the concrete non-wildcard bind target.
-    validate_cert_san(Path(values["cert"]), hostname=str(values["hostname"]))
+    # Hostname mode validates the DNS SAN and discovers only the bind address.
+    address = str(values["address"]) or discover_interface_address(str(values["interface"]))
     server = Path(__file__).resolve().parent.parent / "server" / "server.py"
-    os.execv(str(values["python"]), [str(values["python"]), str(server), "--config", str(values["config"]),
-                                     "--market-env", str(values["market_env"]), "--bind", address,
-                                     "--tls-cert", str(values["cert"]), "--tls-key", str(values["key"])])
+    arguments = [str(values["python"]), str(server), "--config", str(values["config"]),
+                 "--market-env", str(values["market_env"]), "--bind", address,
+                 "--tls-cert", str(values["cert"]), "--tls-key", str(values["key"])]
+    if values["hostname"]:
+        arguments += ["--interface", str(values["interface"])]
+    os.execv(str(values["python"]), arguments)
 
 
 def install(args: argparse.Namespace) -> None:
@@ -221,10 +243,14 @@ def install(args: argparse.Namespace) -> None:
     private_dir = values["private_dir"]
     for name in ("server.log",):
         log = Path(private_dir) / name
+        if log.is_symlink() or (log.exists() and not log.is_file()):
+            fail("server log must be an ordinary file")
         log.touch(exist_ok=True, mode=0o600)
         log.chmod(0o600)
     if args.dry_run:
         review_path = Path(private_dir) / f".{LABEL}.dry-run.plist"
+        if review_path.is_symlink() or (review_path.exists() and not review_path.is_file()):
+            fail("review plist must be an ordinary file")
         review_path.write_bytes(plistlib.dumps(plist, fmt=plistlib.FMT_XML, sort_keys=False))
         review_path.chmod(0o600)
         print_sanitized(plist, review_path)
@@ -485,11 +511,13 @@ def main() -> int:
     deploy_parser.set_defaults(handler=deploy)
     serve_parser = sub.add_parser("serve", help="discover a concrete interface address and exec the gateway")
     serve_parser.add_argument("--private-dir", required=True)
-    serve_parser.add_argument("--hostname", required=True)
-    serve_parser.add_argument("--interface", required=True)
+    serve_endpoint = serve_parser.add_mutually_exclusive_group(required=True)
+    serve_endpoint.add_argument("--address")
+    serve_endpoint.add_argument("--hostname")
+    serve_parser.add_argument("--interface", help="required with --hostname")
     serve_parser.add_argument("--market-env", required=True)
     serve_parser.add_argument("--python", required=True)
-    serve_parser.set_defaults(handler=serve, address=None)
+    serve_parser.set_defaults(handler=serve)
     sub.add_parser("status", help="show load state and safe operational metadata").set_defaults(handler=status)
     remove_parser = sub.add_parser("remove", aliases=["uninstall"], help="unload and move this agent plist to a recoverable backup")
     remove_parser.set_defaults(handler=remove)
