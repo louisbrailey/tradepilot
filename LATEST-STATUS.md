@@ -1,3 +1,14 @@
+# October 26, 2026 — Claude review
+
+Claude independently reviewed the source and fixed four issues:
+
+- A filled paper order could be confirmed again.
+- An idle TCP peer could stall the TLS gateway.
+- Paper orders were refused the day after a Monday holiday.
+- Double-tap guards were added to Webull confirmation.
+
+All gates pass: 13 core, 159 backend and 36 script tests, the Swift smoke checks, and both native builds. The fixes are **not deployed**. The deployed gateway is currently offline because this Mac has no usable LAN address. The iPhone pairing also targets the stale hostname `louiss-macbook-pro-6.local`. See the [October 26 review](reports/review-2026-10-26/REVIEW.md).
+
 # October 1, 2026 — Kronos feature
 
 Added the native Kronos research lab and deployed its authenticated gateway endpoint. Real model and market-data replay passed; simulator build installed and launched. Simulator GUI and physical iPhone verification remain unavailable. No automatic trading enabled. See [Kronos evidence and limitations](KRONOS.md).

@@ -346,6 +346,12 @@ class GatewayHTTPServer(ThreadingHTTPServer):
         self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
         super().__init__(address, handler)
 
+    def handle_error(self, request, client_address):
+        import sys
+        if isinstance(sys.exc_info()[1], OSError):
+            return  # Failed TLS handshakes and dropped peers are routine; no traceback spam.
+        super().handle_error(request, client_address)
+
 
 def serve_with_network_watch(service, address, interface=None, watcher=watch_interface):
     stopped, changed = threading.Event(), threading.Event()
@@ -368,6 +374,15 @@ def serve_with_network_watch(service, address, interface=None, watcher=watch_int
     return 75 if changed.is_set() else 0
 
 
+def enable_tls(service, cert, key):
+    import ssl
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(cert, key)
+    # Handshakes run in Handler.setup on the request thread, under its timeout.
+    service.socket = context.wrap_socket(service.socket, server_side=True, do_handshake_on_connect=False)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "TradePilotDev"
 
@@ -375,6 +390,10 @@ class Handler(BaseHTTPRequestHandler):
         pass  # Do not log chat, bearer tokens, or account data.
 
     def setup(self):
+        # The listening socket defers TLS handshakes so an idle peer cannot block accept().
+        self.request.settimeout(45)
+        if hasattr(self.request, "do_handshake"):
+            self.request.do_handshake()
         super().setup()
         self.connection.settimeout(45)
 
@@ -464,10 +483,6 @@ if __name__ == "__main__":
         raise SystemExit("Non-loopback access requires TLS.")
     service = GatewayHTTPServer((args.bind, 8787), Handler)
     if args.tls_cert and args.tls_key:
-        import ssl
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-        context.load_cert_chain(args.tls_cert, args.tls_key)
-        service.socket = context.wrap_socket(service.socket, server_side=True)
+        enable_tls(service, args.tls_cert, args.tls_key)
     print("TradePilot private gateway started; Webull execution requires a separate approved review.")
     raise SystemExit(serve_with_network_watch(service, args.bind, args.interface))

@@ -5,6 +5,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from research import Massive, validated_daily_bars
 from paper_service import PaperService
@@ -47,8 +48,10 @@ def paper_quote(symbol):
     # Completed unadjusted close only. An explicitly delayed simulation reference,
     # not a current executable quote or a historical split-adjusted trading price.
     row = recent_bars(ticker(symbol), 7, False)[-1]
+    day = datetime.fromtimestamp(row["t"] / 1000, timezone.utc).date()
+    close = datetime.combine(day, datetime.min.time(), ZoneInfo("America/New_York")).replace(hour=16)
     return {"symbol": symbol, "price": format(Decimal(str(row["c"])), "f"),
-            "as_of": row["t"] / 1000, "source": "Massive completed daily bar (unadjusted close; timestamp is bar date)", "delayed": True}
+            "as_of": close.timestamp(), "source": "Massive completed daily bar (unadjusted close; timestamp is 16:00 ET on bar date)", "delayed": True}
 
 
 def workspace_request(path, payload):

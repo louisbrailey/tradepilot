@@ -93,7 +93,26 @@ class WorkspaceTests(unittest.TestCase):
             quote = workspace.paper_quote('AAPL')
         self.assertEqual(quote['price'], '0.00000001')
         self.assertTrue(quote['delayed'])
-        self.assertEqual(quote['as_of'], stamp/1000)
+        from zoneinfo import ZoneInfo
+        close = datetime.fromtimestamp(stamp/1000, timezone.utc).date()
+        expected = datetime.combine(close, datetime.min.time(), ZoneInfo('America/New_York')).replace(hour=16).timestamp()
+        self.assertEqual(quote['as_of'], expected)
+
+    def test_reference_close_survives_monday_holiday(self):
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        new_york = ZoneInfo('America/New_York')
+        friday = datetime(2026, 9, 4, tzinfo=timezone.utc).timestamp()*1000  # before Labor Day
+        tuesday_open = datetime(2026, 9, 8, 10, tzinfo=new_york).timestamp()
+        bars = [{'t':friday,'o':100,'h':101,'l':99,'c':100}]
+        with patch.object(workspace, 'Massive') as provider, patch.object(workspace, 'datetime', wraps=datetime) as clock:
+            clock.now.return_value = datetime(2026, 9, 8, 14, tzinfo=timezone.utc)
+            provider.return_value.get.return_value = {'available':True,'adjusted':False,'results':bars}
+            quote = workspace.paper_quote('AAPL')
+        with tempfile.TemporaryDirectory() as folder:
+            service = PaperService(Path(folder)/'paper.sqlite', clock=lambda: tuesday_open)
+            review = service.create_review(dict(symbol='AAPL', side='buy', quantity='1', client_id='holiday_01'), quote)
+        self.assertEqual(review['status'], 'REVIEW')
 
     def test_authenticated_route_exercises_actual_paper_dispatch(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'TRADEPILOT_RUNTIME':folder,'APP_ACCESS_TOKEN':'x'*32}):

@@ -56,6 +56,12 @@ class PaperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.review(quantity='4')
 
+    def test_confirmed_client_id_cannot_reopen_as_new_review(self):
+        self.approve(self.review())
+        with self.assertRaisesRegex(ValueError, 'already confirmed'):
+            self.review()
+        self.assertEqual(len(self.service.state()['orders']), 1)
+
     def test_expiry_approval_and_immutable_confirmation(self):
         review = self.review()
         for extra in ({'approved': False}, {'token': 'wrong'}, {'quantity': '100'}):

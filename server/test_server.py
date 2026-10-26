@@ -114,6 +114,38 @@ class GatewayTests(unittest.TestCase):
                 self.assertEqual(responses, [expected])
                 setup.assert_not_called()
 
+    def test_idle_tls_peer_does_not_block_other_clients(self):
+        import ssl, subprocess, tempfile, threading
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            cert, key = Path(folder) / "c.pem", Path(folder) / "k.pem"
+            made = subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                                   "-subj", "/CN=127.0.0.1", "-keyout", str(key), "-out", str(cert)],
+                                  capture_output=True)
+            if made.returncode:
+                self.skipTest("openssl unavailable")
+            service = server.GatewayHTTPServer(("127.0.0.1", 0), server.Handler)
+            server.enable_tls(service, cert, key)
+            port = service.server_address[1]
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            idle = socket.create_connection(("127.0.0.1", port))
+            try:
+                client = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                client.check_hostname = False
+                client.verify_mode = ssl.CERT_NONE  # Availability test only; pinning is tested in the app.
+                with socket.create_connection(("127.0.0.1", port), timeout=5) as raw:
+                    with client.wrap_socket(raw) as tls:
+                        tls.sendall(b"POST /v1/setup HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\n{}")
+                        self.assertIn(b"401", tls.recv(64))
+                stopper = threading.Thread(target=service.shutdown)
+                stopper.start()
+                stopper.join(5)
+                self.assertFalse(stopper.is_alive())
+            finally:
+                idle.close()
+                service.server_close()
+
     def test_gateway_chooses_the_bind_address_family(self):
         for address, family in (("127.0.0.1", socket.AF_INET), ("::1", socket.AF_INET6)):
             with self.subTest(address=address), \

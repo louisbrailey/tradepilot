@@ -401,6 +401,7 @@ struct WebullView: View {
         return result
     }
     private func run(_ operation: @escaping @MainActor () async throws -> Void) {
+        guard !busy else { return }
         busy = true
         Task { @MainActor in
             defer { busy = false }
@@ -434,6 +435,7 @@ struct WebullView: View {
         status = "Tracked execution evidence loaded. Notional is not profit or loss."
     }
     private func confirm(_ review: BrokerReview) async throws {
+        guard !attempted else { return }
         guard reviewBinding?.matches(endpoint: store.aiEndpoint, token: store.aiToken) == true else { throw mismatchError() }
         try validateReview(review, account: account)
         // Persist the recovery lock before any approval record or network access.

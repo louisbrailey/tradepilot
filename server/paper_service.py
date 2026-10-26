@@ -118,6 +118,8 @@ class PaperService:
             if prior:
                 if prior['fingerprint'] != fingerprint:
                     raise ValueError('client_id already used for different terms')
+                if prior['receipt']:
+                    raise ValueError('This paper order was already confirmed; refresh the paper account')
                 return json.loads(prior['review'])
             now = self.clock()
             price, as_of = self._quote(quote, symbol, now)

@@ -161,7 +161,8 @@ struct PaperTradingView: View {
         .onChange(of: quantity) { _, _ in if review == nil { requestID = UUID().uuidString } }
         .onChange(of: store.aiEndpoint) { _, _ in clearConnection() }
         .onChange(of: store.aiToken) { _, _ in clearConnection() }
-        .sheet(item: $review) { proposed in
+        // A dismissed or confirmed review never reuses its client_id for a later request.
+        .sheet(item: $review, onDismiss: { requestID = UUID().uuidString }) { proposed in
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
@@ -209,7 +210,7 @@ struct PaperTradingView: View {
     }
     private func confirm(_ proposed: PaperReview) {
         guard !busy, let b = reviewBinding, current(b), let token = proposed.token else { return }
-        busy = true
+        busy = true; requestID = UUID().uuidString  // Retries use proposed.id/token, not the form's client_id.
         Task { defer { busy = false }
             do {
                 let receipt: PaperReview = try await WorkspaceAPI.request("v1/paper/confirm", body: PaperApproval(id: proposed.id, token: token), endpoint: b.endpoint, token: b.token)
