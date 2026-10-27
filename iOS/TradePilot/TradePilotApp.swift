@@ -103,15 +103,19 @@ final class AppStore {
         busy = true
         let selectedAccount = accountID
         let snapshot = visibleHoldings
+        let endpoint = aiEndpoint, token = aiToken
         Task {
             defer { busy = false }
             do {
-                let result = try await AIService.ask(endpoint: aiEndpoint, token: aiToken, prompt: text,
+                let result = try await AIService.ask(endpoint: endpoint, token: token, prompt: text,
                     holdings: snapshot, accounts: engine.accounts.filter { selectedAccount == "all" || $0.id == selectedAccount }, selectedAccount: selectedAccount, strategy: strategyID, researchTicker: useMarketData ? researchTicker : nil,
                     journal: useJournalContext ? journal.entries.filter { $0.mode == "demo" }.prefix(30).map { ["kind": $0.kind, "text": String($0.text.prefix(1000)), "strategy": $0.strategy, "timestamp": $0.timestamp.ISO8601Format(), "mode": $0.mode, "session": $0.sessionID.uuidString] } : [])
+                // Discard replies from a connection the user has since changed.
+                guard aiEndpoint == endpoint, aiToken == token else { return }
                 if result.kind == "trade" {
                     guard let rawSide = result.side, let side = Side(rawValue: rawSide),
-                          let q = result.quantity, let quantity = Decimal(string: q, locale: Locale(identifier: "en_US_POSIX")),
+                          let q = result.quantity, q.range(of: "^[0-9]+(?:\\.[0-9]+)?$", options: .regularExpression) != nil,
+                          let quantity = Decimal(string: q, locale: Locale(identifier: "en_US_POSIX")),
                           let symbol = result.symbol else { throw TradeError.invalidQuantity }
                     // The model cannot submit or confirm; this uses the same independent demo engine.
                     review = try engine.preview(TradeIntent(side: side, quantity: quantity, symbol: symbol), accountID: selectedAccount == "all" ? nil : selectedAccount)

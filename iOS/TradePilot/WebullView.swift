@@ -53,7 +53,7 @@ enum BrokerValidation {
             return reply.side == nil && reply.quantity == nil && reply.symbol == nil
         }
         guard let side = reply.side?.uppercased(), ["BUY", "SELL"].contains(side),
-              let rawQuantity = reply.quantity,
+              let rawQuantity = reply.quantity, rawQuantity.range(of: "^[0-9]+(?:\\.[0-9]+)?$", options: .regularExpression) != nil,
               let quantity = Decimal(string: rawQuantity, locale: Locale(identifier: "en_US_POSIX")), quantity > 0,
               NSDecimalNumber(decimal: quantity).doubleValue.isFinite,
               let symbol = reply.symbol,

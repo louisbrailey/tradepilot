@@ -159,13 +159,19 @@ struct JournalView: View {
                     Button(researching ? "Loading research…" : "Load Massive research") {
                         researching = true
                         let ticker = store.researchTicker
+                        let endpoint = store.aiEndpoint, token = store.aiToken
                         store.record("request", "Load Massive research for \(ticker)")
                         Task {
                             defer { researching = false }
                             do {
-                                researchText = try await AIService.research(endpoint: store.aiEndpoint, token: store.aiToken, ticker: ticker)
+                                let text = try await AIService.research(endpoint: endpoint, token: token, ticker: ticker)
+                                guard store.aiEndpoint == endpoint, store.aiToken == token else { return }
+                                researchText = text
                                 store.record("research", researchText)
-                            } catch { researchText = error.localizedDescription; store.record("error", researchText) }
+                            } catch {
+                                guard store.aiEndpoint == endpoint, store.aiToken == token else { return }
+                                researchText = error.localizedDescription; store.record("error", researchText)
+                            }
                         }
                     }.disabled(researching)
                     if !researchText.isEmpty { Text(researchText).font(.caption).textSelection(.enabled) }
@@ -272,8 +278,8 @@ struct JournalView: View {
                 }
             }
         }
-        .onChange(of: store.aiEndpoint) { _, _ in evaluation = nil; evaluationError = "" }
-        .onChange(of: store.aiToken) { _, _ in evaluation = nil; evaluationError = "" }
+        .onChange(of: store.aiEndpoint) { _, _ in evaluation = nil; evaluationError = ""; researchText = "" }
+        .onChange(of: store.aiToken) { _, _ in evaluation = nil; evaluationError = ""; researchText = "" }
     }
 }
 

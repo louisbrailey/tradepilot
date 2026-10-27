@@ -31,10 +31,13 @@ This is the independent Claude review requested in [the September 23 handoff](..
 ## Open, not fixed (low impact or needs a decision)
 
 - **Webull MARKET confirmations may be refused.** `webull_service.confirm` compares `estimated_cost` for exact equality against a fresh preview. While the market is open, MARKET confirmations may therefore usually be refused. This fails safe, but it needs a real sandbox preview to decide.
-- **Demo and research text are not tied to a connection.** The demo `askAI` result and `JournalView` research text are not checked against the connection after the network call returns. They are demo or informational only.
-- **Lenient number parsing.** `Decimal(string:)` accepts prefixes such as `"1,5"` → 1 in the demo AI quantity and in `aiReplyMatches`. The review always shows the quantity the server parsed.
 - **Splits are not modeled.** A split between a paper buy and a mark would show a false drawdown, because marks use unadjusted closes. This limitation is already documented.
-- **Interface names are validated inconsistently.** `manage-local-service.py` accepts interface names that `server.py` rejects.
+
+## Follow-up fixes (same day)
+
+- **Connection binding:** the demo `askAI` reply and the `JournalView` research text are now discarded if the connection changed during the request. Research text is cleared when the connection changes.
+- **Strict quantities:** AI-proposed quantities must match `^[0-9]+(\.[0-9]+)?$` before decimal parsing.
+- **Interface names:** `manage-local-service.py` now accepts only `en0`–`en99`, matching `server.py`.
 
 ## Verification
 

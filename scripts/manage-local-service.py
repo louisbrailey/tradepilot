@@ -67,8 +67,9 @@ def validate_hostname(value: str) -> str:
 
 
 def validate_interface(value: str) -> str:
-    if not re.fullmatch(r"[A-Za-z0-9_.:-]+", value):
-        fail("interface contains invalid characters")
+    # Must match server.py and network_watch.py, which accept only en0-en99.
+    if not re.fullmatch(r"en[0-9]{1,2}", value):
+        fail("interface must be a macOS en0 through en99 interface")
     return value
 
 
