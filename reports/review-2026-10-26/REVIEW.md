@@ -47,6 +47,18 @@ This is the independent Claude review requested in [the September 23 handoff](..
 | Coinbase ES256 signing with gateway venv interpreter | 15/15 pass |
 | `xcodebuild` iOS Simulator and unsigned `generic/platform=iOS` | Both succeed |
 
+## Simulator end-to-end check (same day)
+
+The app was built from `7ab6207` and run on the iPhone 17 Pro simulator. It was paired with an isolated gateway on `[::1]:8787`, using the deployed code, a temporary certificate and token, an empty paper ledger, and the private Massive market-data key. The checks below passed:
+
+- The certificate-pinned connection worked.
+- The paper account loaded.
+- A 1-share AAPL review showed the real delayed close: $343.91, stamped 16:00 ET. The simulated price was $344.25.
+- Confirming the order filled it. Cash became $9,655.75 and the position was shown.
+- Coinbase reported "read-only access is not configured".
+
+Afterwards the test gateway and its files were deleted, and the simulator was given the real pairing again. No broker or real account was contacted.
+
 ## Deployment state observed (read-only)
 
 - **Gateway is down.** The deployed gateway at `~/Library/Application Support/TradePilot/gateway-20260923` matched the source before these fixes. It has been restarting repeatedly (about 1,800 launchd runs) because `en0` has no usable private IPv4 address. The Mac is currently on a network that gives only `192.0.0.2`.
