@@ -23,6 +23,10 @@ let aiTrade = AIReply(kind: "trade", message: "Fill the form.", side: "buy", qua
 precondition(BrokerValidation.aiReplyMatches(aiTrade, account: "account-a", environment: "sandbox", now: 1_000))
 precondition(!BrokerValidation.aiReplyMatches(AIReply(kind: "trade", message: "", side: "buy", quantity: "0", symbol: "AAPL", account_id: "account-a", environment: "sandbox", snapshot_as_of: 995), account: "account-a", environment: "sandbox", now: 1_000))
 precondition(!BrokerValidation.aiReplyMatches(AIReply(kind: "trade", message: "", side: "buy", quantity: "NaN", symbol: "AAPL", account_id: "account-a", environment: "sandbox", snapshot_as_of: 995), account: "account-a", environment: "sandbox", now: 1_000))
+// Forms Decimal(string:) accepts but the strict quantity pattern must reject.
+for quantity in ["1e2", "+2", "2.", ".5", " 2", "2 ", "2,5", "2\n"] {
+    precondition(!BrokerValidation.aiReplyMatches(AIReply(kind: "trade", message: "", side: "buy", quantity: quantity, symbol: "AAPL", account_id: "account-a", environment: "sandbox", snapshot_as_of: 995), account: "account-a", environment: "sandbox", now: 1_000), quantity)
+}
 precondition(!BrokerValidation.aiReplyMatches(AIReply(kind: "trade", message: "", side: "buy", quantity: "2", symbol: "AAPL", account_id: "account-b", environment: "sandbox", snapshot_as_of: 995), account: "account-a", environment: "sandbox", now: 1_000))
 precondition(!BrokerValidation.aiReplyMatches(AIReply(kind: "portfolio", message: "", side: nil, quantity: nil, symbol: nil, account_id: "account-a", environment: "sandbox", snapshot_as_of: 800), account: "account-a", environment: "sandbox", now: 1_000))
 precondition(!BrokerValidation.aiReplyMatches(AIReply(kind: "portfolio", message: "", side: "sell", quantity: nil, symbol: nil, account_id: "account-a", environment: "sandbox", snapshot_as_of: 995), account: "account-a", environment: "sandbox", now: 1_000))

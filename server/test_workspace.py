@@ -1,5 +1,4 @@
 import io
-import json
 import os
 import tempfile
 import time
@@ -8,12 +7,24 @@ from email.message import Message
 from pathlib import Path
 from unittest.mock import patch
 import server
+from unittest.mock import Mock
 import workspace_service as workspace
 from paper_service import PaperService
 from webull_service import BrokerError
 
 
 class WorkspaceTests(unittest.TestCase):
+    def test_network_watch_rejects_invalid_interface_names(self):
+        class Stub:
+            def serve_forever(self): raise AssertionError("must not serve")
+            def shutdown(self): pass
+            def server_close(self): pass
+        for interface in ("en100", "eth0", "lo0", "en0;echo", "EN0", "-h"):
+            watcher = Mock()
+            with self.subTest(interface=interface), self.assertRaises(ValueError):
+                server.serve_with_network_watch(Stub(), "192.168.1.20", interface, watcher=watcher)
+            watcher.assert_not_called()
+
     def test_network_restart_drains_requests_and_returns_failure_for_launchd(self):
         import threading
         ready, shutdown = threading.Event(), threading.Event()

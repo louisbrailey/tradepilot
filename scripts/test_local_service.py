@@ -391,6 +391,66 @@ class LaunchPreflightTests(unittest.TestCase):
                     result = subprocess.run(["bash", str(SCRIPT.with_name(filename)), *args], capture_output=True)
                     self.assertEqual(result.returncode, expected)
 
+    def test_validate_interface_accepts_en0_to_en99_only(self):
+        for good in ("en0", "en9", "en10", "en99"):
+            self.assertEqual(MODULE.validate_interface(good), good)
+        for bad in ("", "en", "en100", "EN0", "eth0", "lo0", "en0 ", " en0", "en0\n", "bridge0"):
+            with self.subTest(value=bad), self.assertRaises(SystemExit):
+                MODULE.validate_interface(bad)
+
+    def test_serve_timestamps_missing_interface_address(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args = private_inputs(Path(folder))
+            args.address, args.hostname, args.interface = "", "gateway.local", "en0"
+            completed = subprocess.CompletedProcess(["ipconfig"], 1, "", "")
+            with mock.patch.object(MODULE, "validate_tls_material"), \
+                 mock.patch.object(MODULE, "validate_cert_san"), \
+                 mock.patch.object(MODULE.subprocess, "run", return_value=completed), \
+                 mock.patch.object(MODULE.os, "execv") as execute:
+                with self.assertRaises(SystemExit) as raised:
+                    MODULE.serve(args)
+            execute.assert_not_called()
+            self.assertRegex(str(raised.exception),
+                             r"^error: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4} interface en0 has no IPv4 address")
+
+    def test_iphone_installer_refuses_unsafe_pairing_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pairing = Path(folder, "TradePilotPairing.json")
+            pairing.write_text("{}")
+            pairing.chmod(0o644)
+            link = Path(folder, "link.json")
+            link.symlink_to(pairing)
+            for path, expected in ((pairing, "owner-only"), (link, "ordinary readable file"),
+                                   (Path(folder, "missing.json"), "ordinary readable file")):
+                with self.subTest(path=path.name):
+                    result = subprocess.run(["bash", str(SCRIPT.with_name("install-iphone.sh")), "00000000-FAKE", str(path)],
+                                            text=True, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn(expected, result.stderr)
+
+    def test_iphone_installer_refuses_phone_without_developer_mode(self):
+        cases = (
+            ("Device Reality: physical\\nDeveloper Mode Status: Disabled", "Developer Mode is off"),
+            ("Device Reality: simulated\\nDeveloper Mode Status: Enabled", "not a connected physical device"),
+        )
+        for status, expected in cases:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as folder:
+                bin_dir = Path(folder, "bin")
+                bin_dir.mkdir()
+                fake_xcrun = bin_dir / "xcrun"
+                fake_xcrun.write_text(f"#!/bin/bash\nprintf '{status}\\n'\n")
+                fake_xcrun.chmod(0o755)
+                xcodebuild = bin_dir / "xcodebuild"
+                xcodebuild.write_text("#!/bin/bash\necho 'xcodebuild must not run' >&2\nexit 99\n")
+                xcodebuild.chmod(0o755)
+                result = subprocess.run(["bash", str(SCRIPT.with_name("install-iphone.sh")), "00000000-FAKE"],
+                                        text=True, capture_output=True, timeout=10,
+                                        env=dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
+                                                 DEVELOPER_DIR=folder))
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected, result.stderr)
+                self.assertNotIn("xcodebuild must not run", result.stderr)
+
     def test_manual_launcher_refuses_wildcard_before_starting_server(self):
         with tempfile.TemporaryDirectory() as folder:
             args = private_inputs(Path(folder))

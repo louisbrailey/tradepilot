@@ -7,7 +7,7 @@ TradePilot includes a private backend adapter for Webull account/position reads,
 - Webull approved **TradePilot Personal** and a key has been generated. The backend private key is saved outside `outputs/TradePilot`.
 - Read-only Webull configuration succeeds. Mobile token creation currently returns `417 NO_AVAILABLE_DEVICE`.
 - Next action: open or update the Webull iPhone app, sign in, and retry token creation. Do not put broker credentials in the iOS app or in this repository.
-- Xcode setup is complete enough for a generic unsigned build and signed simulator build: the license is accepted and Personal Team `ANWNGW59GP` is selected. The simulator launched and was visually checked. The physical iPhone 16 Pro is unavailable/unpaired, so no signed device install has been completed.
+- Xcode setup is complete enough for a generic unsigned build and signed simulator build: the license is accepted and Personal Team `ANWNGW59GP` is selected. The simulator launched and was visually checked. The physical iPhone 16 Pro is connected and paired with this Mac, but Developer Mode is off on the phone, so Xcode cannot build to it and no signed device install has been completed.
 
 ## Private backend configuration
 
@@ -60,7 +60,7 @@ In Accounts, enter only the private HTTPS server URL and app access token. Never
 
 ## Install on a physical iPhone
 
-The physical device must be trusted and paired with this Mac, have Developer Mode enabled when requested, and be available to the Apple signing account selected in Xcode. The helper builds into `/private/tmp` to avoid signing issues in iCloud-synced folders, installs the app, and launches it. Pass the device identifier as the first argument. A private pairing file is optional; if supplied, it is copied into the app data container without printing its contents:
+The physical device must be trusted and paired with this Mac, have Developer Mode turned on (Settings > Privacy & Security > Developer Mode; the switch appears only after a Mac has connected once, and turning it on restarts the phone and asks for the passcode), and be available to the Apple signing account selected in Xcode. The helper checks the phone with `xcrun devicectl` first and stops with a message if Developer Mode is off, instead of letting `xcodebuild` wait for a destination that never becomes available. The helper builds into `/private/tmp` to avoid signing issues in iCloud-synced folders, installs the app, and launches it. Pass the device identifier as the first argument. A private pairing file is optional; if supplied, it is copied into the app data container without printing its contents:
 
 ```sh
 scripts/install-iphone.sh DEVICE_IDENTIFIER

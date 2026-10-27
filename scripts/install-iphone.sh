@@ -20,12 +20,33 @@ if [[ $# -lt 1 || $# -gt 2 || -z "$DEVICE_ID" ]]; then
   usage
   exit 2
 fi
-if [[ -n "$PAIRING_FILE" && ! -f "$PAIRING_FILE" ]]; then
-  echo "Pairing file not found: $PAIRING_FILE" >&2
-  exit 2
+if [[ -n "$PAIRING_FILE" ]]; then
+  if [[ -L "$PAIRING_FILE" || ! -f "$PAIRING_FILE" || ! -r "$PAIRING_FILE" ]]; then
+    echo "Pairing file must be an ordinary readable file: $PAIRING_FILE" >&2
+    exit 2
+  fi
+  # The pairing file embeds the access token; refuse one other users can read,
+  # matching the private-file checks in manage-local-service.py.
+  PAIRING_MODE="$(stat -f '%Lp' "$PAIRING_FILE")"
+  if [[ "$PAIRING_MODE" != 600 && "$PAIRING_MODE" != 400 ]]; then
+    echo "Pairing file must be owner-only (chmod 600): $PAIRING_FILE" >&2
+    exit 2
+  fi
 fi
 if [[ ! -d "$DEVELOPER_DIR" ]]; then
   echo "Xcode developer directory not found: $DEVELOPER_DIR" >&2
+  exit 2
+fi
+
+# Fail fast on a phone xcodebuild cannot use, instead of letting it wait minutes
+# for a destination that never becomes available.
+DEVICE_INFO="$(xcrun devicectl device info details --device "$DEVICE_ID" 2>&1 || true)"
+if ! grep -q "Device Reality: physical" <<<"$DEVICE_INFO"; then
+  echo "Device $DEVICE_ID is not a connected physical device; check 'xcrun devicectl list devices'." >&2
+  exit 2
+fi
+if grep -q "Developer Mode Status: Disabled" <<<"$DEVICE_INFO"; then
+  echo "Developer Mode is off on the phone. On the phone open Settings > Privacy & Security > Developer Mode, turn it on, restart, confirm with the passcode, unlock the phone, then rerun." >&2
   exit 2
 fi
 

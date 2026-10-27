@@ -59,8 +59,19 @@ The app was built from `7ab6207` and run on the iPhone 17 Pro simulator. It was 
 
 Afterwards the test gateway and its files were deleted, and the simulator was given the real pairing again. No broker or real account was contacted.
 
+## Physical iPhone (same day, later)
+
+With the USB-C cable connected, `xcrun devicectl` lists the iPhone 16 Pro as paired and connected over a wired tunnel, and `xcodebuild` recognises it as a destination. The install is blocked on the phone, not the Mac:
+
+- Developer Mode is off, so `xcodebuild` waits about two minutes and then reports `Developer Mode disabled`. Turning it on requires a restart and the passcode on the phone.
+- The team has no registered devices, so a signed `generic/platform=iOS` build cannot get a provisioning profile; the first device build with `-allowProvisioningDeviceRegistration` will register it. The signing identity and Apple account session work.
+
+`scripts/install-iphone.sh` now runs `xcrun devicectl device info details` first and exits with a clear message when the device is not a physical phone or has Developer Mode off; a test covers both cases with a fake `xcrun`. Against the real phone the script now stops in about a second with the Developer Mode message.
+
+A follow-up audit the same evening added regression tests the review had left implicit (interface-name rejection in the gateway and the service script, the Webull fee half of the cost comparison, strict-quantity negatives in the Swift smoke check), removed two unused test imports, made the installer refuse a symlinked or group-readable pairing file, and timestamped the launchd serve-path errors so the restart loop is datable. Gates after these changes: 13 core, 160 backend (1 skipped), 40 script, Swift smoke checks and the pbxproj lint all pass. The timestamp change was deployed in place (`scripts/manage-local-service.py`, previous copy in `private/code-backup-20261026`).
+
 ## Deployment state observed (read-only)
 
 - **Gateway is down.** The deployed gateway at `~/Library/Application Support/TradePilot/gateway-20260923` matched the source before these fixes. It has been restarting repeatedly (about 1,800 launchd runs) because `en0` has no usable private IPv4 address. The Mac is currently on a network that gives only `192.0.0.2`.
-- **The pairing hostname is stale.** The iPhone pairing targets `louiss-macbook-pro-6.local`, but macOS now names the Mac `louiss-MacBook-Pro-7`. The app cannot reach the gateway until the hostname is restored or the app is re-paired.
+- **The pairing hostname is stale.** The iPhone pairing targets `louiss-macbook-pro-6.local`, but macOS now names the Mac `louiss-MacBook-Pro-7`. The app cannot reach the gateway until the hostname is restored or the app is re-paired. Later the same day the gateway was re-paired for `louiss-macbook-pro-7.local` (new certificate valid until 2027-01-24, token unchanged; the old pairing is kept in `private/previous-pairing-20261026`). The phone still needs the new `TradePilotPairing.json`.
 - **Fixes deployed later the same day.** The deployed `server/` and `scripts/manage-local-service.py` files now match `7ab6207`; the previous code is in `private/code-backup-20261026`. The repository's backend tests pass against the deployed modules with the gateway's interpreter. Six evaluation tests could not run outside the repository layout because they need `BACKTEST-SUMMARY.json`. No live request has been served yet, because the Mac has no LAN address.

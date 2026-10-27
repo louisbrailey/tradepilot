@@ -1,6 +1,21 @@
 # iPhone connection troubleshooting report
 
-Date: September 10, 2026
+## Update — October 26, 2026
+
+The September blocker below is resolved. With the phone connected over USB-C, unlocked and trusted, `xcrun devicectl list devices` now lists it as `available (paired)` with a wired tunnel, and `xcodebuild -destination id=00008140-001C0D242638801C` recognises the device. The remaining blocker is on the phone:
+
+- **Developer Mode is off.** xcodebuild waits about two minutes and then fails with `Developer Mode disabled. To use my iphone for development, enable Developer Mode in Settings → Privacy & Security.` Because the Mac now has a working CoreDevice connection, the Developer Mode switch should be visible on the phone (it is hidden until a Mac has connected at least once). Turning it on restarts the phone and then asks for the passcode; nothing on the Mac can do this.
+- **No device is registered to the team yet.** A signed `generic/platform=iOS` build fails with `Your team has no devices from which to generate a provisioning profile`, so TradePilot has never been installed on the phone. `scripts/install-iphone.sh` passes `-allowProvisioningDeviceRegistration`, which registers the phone and creates the profile on the first build once Developer Mode is on. The Apple Development identity and the team's Apple account session work.
+
+Once Developer Mode is on and the phone is unlocked, run:
+
+```bash
+scripts/install-iphone.sh 00008140-001C0D242638801C "$HOME/Library/Application Support/TradePilot/gateway-20260923/private/TradePilotPairing.json"
+```
+
+The gateway itself still needs the Mac on home Wi-Fi (`192.168.68.0/24`) before the phone can reach it.
+
+## Original report — September 10, 2026
 
 ## Blocker
 

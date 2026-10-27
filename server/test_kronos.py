@@ -1,6 +1,5 @@
 import io
 import json
-import math
 import subprocess
 import unittest
 from email.message import Message

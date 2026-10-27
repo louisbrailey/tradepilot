@@ -13,6 +13,7 @@ from webull_service import WebullAdapter, WebullService, BrokerError
 class FakeBroker:
     environment = 'sandbox'
     cost = '300'
+    fee = '0.01'
     calls = 0
     fail = False
     def accounts(self):
@@ -20,7 +21,7 @@ class FakeBroker:
     def positions(self, account):
         return [{'symbol': 'AAPL', 'quantity': '5', 'instrument_type': 'EQUITY'}]
     def preview(self, account, order):
-        return {'estimated_cost': self.cost, 'estimated_transaction_fee': '0.01'}
+        return {'estimated_cost': self.cost, 'estimated_transaction_fee': self.fee}
     def place(self, account, order):
         self.calls += 1
         if self.fail:
@@ -135,10 +136,14 @@ class WebullTests(unittest.TestCase):
     def test_expiry_and_changed_price(self):
         approval = self.approval(self.review())
         self.now += 60
-        with self.assertRaises(BrokerError): self.service.confirm(approval)
+        with self.assertRaisesRegex(BrokerError, 'Review expired'): self.service.confirm(approval)
         approval = self.approval(self.review())
         self.adapter.cost = '301'
-        with self.assertRaises(BrokerError): self.service.confirm(approval)
+        with self.assertRaisesRegex(BrokerError, 'cost estimate changed'): self.service.confirm(approval)
+        self.adapter.cost = '300'
+        approval = self.approval(self.review())
+        self.adapter.fee = '0.02'
+        with self.assertRaisesRegex(BrokerError, 'cost estimate changed'): self.service.confirm(approval)
         self.assertEqual(self.adapter.calls, 0)
     def test_unauthorized_account_and_short_rejected(self):
         for changes in ({'account_id': 'other'}, {'quantity': '6'}, {'side': 'SHORT'}, {'quantity': 'NaN'}, {'approved': True}):
