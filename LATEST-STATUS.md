@@ -7,7 +7,7 @@ Claude independently reviewed the source and fixed four issues:
 - Paper orders were refused the day after a Monday holiday.
 - Double-tap guards were added to Webull confirmation.
 
-All gates pass: 13 core, 159 backend and 36 script tests, the Swift smoke checks, and both native builds. The fixes are **not deployed**. The deployed gateway is currently offline because this Mac has no usable LAN address. The gateway was later re-paired the same day for `louiss-macbook-pro-7.local`. That produced a new certificate, valid until 2027-01-24; the access token is unchanged. The old pairing files are kept in `private/previous-pairing-20261026`. The phone must receive the new `TradePilotPairing.json`. See the [October 26 review](reports/review-2026-10-26/REVIEW.md).
+All gates pass: 13 core, 159 backend and 36 script tests, the Swift smoke checks, and both native builds. Commits `2b05e15` and `7ab6207` are deployed in place to the private gateway; the previous code is kept in `private/code-backup-20261026`. The gateway is waiting for a LAN address and has not served a request since deployment. The gateway was later re-paired the same day for `louiss-macbook-pro-7.local`. That produced a new certificate, valid until 2027-01-24; the access token is unchanged. The old pairing files are kept in `private/previous-pairing-20261026`. The phone must receive the new `TradePilotPairing.json`. See the [October 26 review](reports/review-2026-10-26/REVIEW.md).
 
 # October 1, 2026 — Kronos feature
 
