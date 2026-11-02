@@ -8,6 +8,7 @@ import types
 import unittest
 from unittest.mock import patch
 from contextlib import closing
+from broker_admission import AdmissionLedger
 from webull_service import WebullAdapter, WebullService, BrokerError
 
 class FakeBroker:
@@ -18,8 +19,12 @@ class FakeBroker:
     fail = False
     def accounts(self):
         return [{'account_id': 'cash', 'account_class': 'INDIVIDUAL_CASH'}]
+    def open_orders(self, account):
+        return []
     def positions(self, account):
         return [{'symbol': 'AAPL', 'quantity': '5', 'instrument_type': 'EQUITY'}]
+    def balance(self, account):
+        return {'total_asset_currency': 'USD', 'account_currency_assets': [{'currency': 'USD', 'settled_cash': '1000', 'frozen_amount': '0'}]}
     def preview(self, account, order):
         return {'estimated_cost': self.cost, 'estimated_transaction_fee': self.fee}
     def place(self, account, order):
@@ -38,6 +43,9 @@ class WebullTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.path = self.tmp.name + '/ledger.db'
+        self.admission = AdmissionLedger(self.tmp.name + '/admission.sqlite3')
+        patcher = patch('webull_service.AdmissionLedger', return_value=self.admission)
+        patcher.start(); self.addCleanup(patcher.stop)
         self.adapter = FakeBroker()
         self.now = 1000
         self.service = WebullService(self.path, self.adapter, lambda: self.now)
@@ -151,8 +159,9 @@ class WebullTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls, 0)
     def test_live_execution_requires_explicit_backend_enablement(self):
         self.adapter.environment = 'production'
-        approval = self.approval(self.review())
-        with patch.dict(os.environ, {'WEBULL_LIVE_TRADING': ''}):
+        review = self.review(limit_price='100', fee_policy='accept_rechecked_estimate', fee_estimate_ceiling='0.01', debit_admission_ceiling='0.02', headroom='0.01', fee_currency='USD')
+        approval = self.approval(review) | {'digest': review['digest']}
+        with patch.dict(os.environ, {'WEBULL_LIVE_TRADING': '', 'BROKER_KILL_SWITCH': 'disabled'}):
             with self.assertRaises(BrokerError): self.service.confirm(approval)
         self.assertEqual(self.adapter.calls, 0)
     def test_cancelled_review_does_not_submit(self):
@@ -402,14 +411,10 @@ class WebullTests(unittest.TestCase):
         approval = self.approval(self.review())
         other = WebullService(self.path, self.adapter, lambda: self.now)
         barrier = threading.Barrier(2)
-        original = self.adapter.preview
-        def preview(account, order):
-            barrier.wait(timeout=5)
-            return original(account, order)
-        self.adapter.preview = preview
         results, errors = [], []
         def confirm(service):
             try:
+                barrier.wait(timeout=5)
                 results.append(service.confirm(approval))
             except Exception as error:
                 errors.append(error)
@@ -501,3 +506,95 @@ class FakeResponse:
     def json(self): return self.body
 
 if __name__ == '__main__': unittest.main()
+
+
+class ProductionWebullActionsTests(unittest.TestCase):
+    def setUp(self):
+        from broker_admission import AdmissionLedger
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.ledger = AdmissionLedger(self.tmp.name + '/admission.sqlite3')
+        self.fake = FakeBroker(); self.fake.environment = 'production'
+        self.now = 1000
+        self.service = WebullService(self.tmp.name + '/orders.db', self.fake, lambda: self.now, self.ledger)
+        self.addCleanup(self.service.db.close)
+        self.flags = patch.dict(os.environ, {'WEBULL_LIVE_TRADING': 'enabled', 'BROKER_KILL_SWITCH': 'disabled'}, clear=True)
+        self.flags.start(); self.addCleanup(self.flags.stop)
+    def review(self):
+        return self.service.create_review({'account_id': 'cash', 'symbol': 'AAPL', 'side': 'SELL', 'quantity': '3',
+                  'limit_price': '100', 'fee_policy': 'accept_rechecked_estimate', 'fee_estimate_ceiling': '0.01',
+                  'debit_admission_ceiling': '0.02', 'headroom': '0.01', 'fee_currency': 'USD'})
+    def confirm(self, r):
+        return self.service.confirm({'id': r['id'], 'confirmation_token': r['confirmation_token'], 'digest': r['digest'], 'approved': True})
+    def open_detail(self):
+        original = self.fake.detail
+        def detail(account, client):
+            result = original(account, client)
+            result['orders'][0].update(status='SUBMITTED', order_type='LIMIT', limit_price='100', filled_quantity='0', filled_price='0')
+            return result
+        self.fake.detail = detail
+    def test_production_durable_hold_and_foreign_open_order_refusal(self):
+        r = self.review()
+        self.fake.open_orders = lambda account: [{'client_order_id': 'foreign'}]
+        with self.assertRaisesRegex(BrokerError, 'Existing open orders'): self.confirm(r)
+        self.assertEqual(self.fake.calls, 0)
+        self.fake.open_orders = lambda account: []
+        self.assertEqual(self.confirm(r)['state'], 'SUBMITTED')
+        other = self.review()
+        with self.assertRaises(BrokerError): self.confirm(other)
+        self.assertEqual(self.fake.calls, 1)
+    def test_protective_cancel_existing_hold_kill_and_duplicate(self):
+        from webull_actions import cancellation_review, cancellation_confirm
+        r = self.review(); self.confirm(r); self.open_detail()
+        c = cancellation_review(self.service, {'id': r['id']})
+        sent = []
+        self.fake.cancel = lambda account, client: sent.append((account, client)) or {'client_order_id': client}
+        os.environ['BROKER_KILL_SWITCH'] = 'enabled'
+        approval = {k: c[k] for k in ('id', 'token', 'digest')} | {'approved': True}
+        self.assertEqual(cancellation_confirm(self.service, approval)['state'], 'ACCEPTED')
+        self.assertEqual(cancellation_confirm(self.service, approval)['state'], 'ACCEPTED')
+        self.assertEqual(len(sent), 1)
+        with self.ledger.connect() as db: self.assertEqual(db.execute('SELECT count(*) FROM broker_admission').fetchone()[0], 1)
+    def test_cancellation_expired_mismatched_and_unknown_hold(self):
+        from webull_actions import cancellation_review, cancellation_confirm
+        r = self.review(); self.confirm(r); self.open_detail()
+        c = cancellation_review(self.service, {'id': r['id']})
+        approval = {k: c[k] for k in ('id', 'token', 'digest')} | {'approved': True}
+        with self.assertRaises(BrokerError): cancellation_confirm(self.service, approval | {'digest': 'other'})
+        self.now += 61
+        with self.assertRaises(BrokerError): cancellation_confirm(self.service, approval)
+        self.now = 1000
+        def uncertain(*_): raise TimeoutError('SECRET')
+        self.fake.cancel = uncertain
+        self.assertEqual(cancellation_confirm(self.service, approval)['state'], 'UNKNOWN')
+        with self.ledger.connect() as db: self.assertEqual(db.execute('SELECT state FROM broker_admission').fetchone()[0], 'UNKNOWN')
+    def test_presend_recovery_invalidates_review_without_send(self):
+        r = self.review()
+        self.ledger.reserve('webull', 'production', ['cash'], r['id'])
+        self.ledger.transition(r['id'], 'SUBMITTING')
+        self.assertEqual(self.service.refresh(r['id'])['state'], 'CANCELLED_REVIEW')
+        self.assertEqual(self.confirm(r)['state'], 'CANCELLED_REVIEW')
+        self.assertEqual(self.fake.calls, 0)
+    def test_missing_fee_policy_and_insufficient_settled_cash_refuse(self):
+        with self.assertRaises(BrokerError): self.service.create_review({'account_id': 'cash', 'symbol': 'AAPL', 'side': 'SELL', 'quantity': '3', 'limit_price': '100'})
+        self.fake.balance = lambda _: {'total_asset_currency': 'USD', 'account_currency_assets': [{'currency': 'USD', 'settled_cash': '0', 'frozen_amount': '0'}]}
+        with self.assertRaises(BrokerError): self.review()
+
+    def test_actual_costs_wait_for_settlement_then_surface_overrun(self):
+        r = self.review(); self.confirm(r)
+        original = self.fake.detail
+        def detail(account, client):
+            result = original(account, client)
+            result['orders'][0].update(order_type='LIMIT', limit_price='100')
+            return result
+        self.fake.detail = detail
+        self.assertEqual(self.service.refresh(r['id'])['state'], 'AWAITING_FEE_SETTLEMENT')
+        with self.ledger.connect() as db: self.assertEqual(db.execute('SELECT count(*) FROM broker_admission').fetchone()[0], 1)
+        def settled(account, client):
+            result = detail(account, client)
+            result['orders'][0].update(commission={'actual_commission': '1', 'receivable_commission': '1'}, fees=[])
+            return result
+        self.fake.detail = settled
+        receipt = self.service.refresh(r['id'])
+        self.assertEqual(receipt['state'], 'FILLED')
+        self.assertTrue(json.loads(receipt['detail'])['_economic_evidence']['fee_overrun'])
+        with self.ledger.connect() as db: self.assertEqual(db.execute('SELECT count(*) FROM broker_admission').fetchone()[0], 0)

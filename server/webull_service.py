@@ -19,6 +19,7 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from broker_admission import AdmissionLedger, AdmissionError
 from execution_ledger import ExecutionLedger, ExecutionEvidenceError
 
 
@@ -92,12 +93,34 @@ class WebullAdapter:
             raise BrokerError("Webull did not provide a matching order acceptance")
         return data
 
+    def open_orders(self, account):
+        rows, seen, cursor = [], set(), None
+        for _ in range(100):
+            page = self.data(self.client.order_v3.list_order_open(account, pagination_key=cursor))
+            if not isinstance(page, dict) or not isinstance(page.get('data'), list):
+                raise BrokerError('Webull open-order coverage is unverified; new exposure refused.')
+            for row in page['data']:
+                if not isinstance(row, dict) or row.get('account_id', account) != account:
+                    raise BrokerError('Webull open-order account mismatch.')
+                rows.append(row)
+            cursor = page.get('pagination_key')
+            if not cursor:
+                return rows
+            if not isinstance(cursor, str) or cursor in seen or not page['data']:
+                raise BrokerError('Webull open-order pagination is incomplete.')
+            seen.add(cursor)
+        raise BrokerError('Webull open-order pagination exceeded the safe limit.')
+
+    def cancel(self, account, client_id):
+        return self.data(self.client.order_v3.cancel_order(account, client_id))
+
     def detail(self, account, client_id):
         return self.data(self.client.order_v3.get_order_detail(account, client_id))
 
 
 class WebullService:
-    def __init__(self, path, adapter, clock=time.time):
+    def __init__(self, path, adapter, clock=time.time, admission=None):
+        self.admission = admission
         self.adapter, self.clock = adapter, clock
         self.lock = threading.RLock()
         self.db = sqlite3.connect(str(path), check_same_thread=False)
@@ -155,8 +178,34 @@ class WebullService:
             if qty > owned:
                 raise BrokerError("Insufficient stock holdings. This app does not open short positions.")
 
+    def economic_check(self, account, body, terms, preview):
+        if terms.get('fee_policy', 'require_provider_cap') != 'accept_rechecked_estimate':
+            raise BrokerError('Webull has no provider-enforced fee cap. Explicit reviewed estimate opt-in is required.')
+        if body['order_type'] != 'LIMIT' or terms.get('fee_currency') != 'USD':
+            raise BrokerError('Production estimates require a USD-settled long-stock LIMIT/DAY order.')
+        if any(not isinstance(terms.get(k), str) or not re.fullmatch(r'[0-9]{1,18}(?:\.[0-9]{1,8})?', terms[k]) for k in ('fee_estimate_ceiling', 'debit_admission_ceiling', 'headroom')):
+            raise BrokerError('Use bounded plain decimal strings for economic limits.')
+        fee, ceiling, debit, headroom = (number(preview['estimated_transaction_fee']), number(terms['fee_estimate_ceiling']),
+                                       number(terms['debit_admission_ceiling']), number(terms['headroom']))
+        if min(fee, ceiling, debit, headroom) < 0 or fee > ceiling:
+            raise BrokerError('Estimated fees exceed the approved ceiling.')
+        required = number(body['quantity']) * number(body['limit_price']) + ceiling + headroom if body['side'] == 'BUY' else ceiling + headroom
+        if required > debit:
+            raise BrokerError('Debit ceiling does not cover limit notional, approved fees and headroom.')
+        balance = self.adapter.balance(account)
+        if not isinstance(balance, dict) or balance.get('total_asset_currency') != 'USD':
+            raise BrokerError('Account settlement currency is unverified.')
+        rows = balance.get('account_currency_assets')
+        if not isinstance(rows, list):
+            raise BrokerError('Available funds are unverified.')
+        usd = [r for r in rows if isinstance(r, dict) and r.get('currency') == 'USD']
+        if len(usd) != 1 or min(number(usd[0].get('settled_cash')), number(usd[0].get('frozen_amount'))) < 0:
+            raise BrokerError('Settled and frozen funds are unverified.')
+        if number(usd[0]['settled_cash']) - number(usd[0]['frozen_amount']) < required:
+            raise BrokerError('Insufficient unreserved settled USD funds. Margin borrowing is unsupported.')
+
     def create_review(self, payload):
-        if not isinstance(payload, dict) or set(payload) - {"account_id", "symbol", "side", "quantity", "limit_price"}:
+        if not isinstance(payload, dict) or set(payload) - {"account_id", "symbol", "side", "quantity", "limit_price", "fee_policy", "fee_estimate_ceiling", "debit_admission_ceiling", "headroom", "fee_currency"}:
             raise BrokerError("Unsupported order fields")
         account = payload.get("account_id")
         if not isinstance(account, str) or not account:
@@ -178,6 +227,12 @@ class WebullService:
             body.update(order_type="LIMIT", limit_price=limit)
         self.validate(account, body)
         preview = self.adapter.preview(account, body)
+        economic_terms = {k: payload[k] for k in ('fee_policy', 'fee_estimate_ceiling', 'debit_admission_ceiling', 'headroom', 'fee_currency') if k in payload}
+        if self.adapter.environment == 'production':
+            if len(economic_terms) != 5:
+                raise BrokerError('Production fee policy defaults to require_provider_cap, which is unsupported. Explicit estimated-fee terms are required.')
+            self.economic_check(account, body, economic_terms, preview)
+            preview['_economic_terms'] = economic_terms
         review_id, token = uuid.uuid4().hex, secrets.token_urlsafe(32)
         expires = self.clock() + 60
         with self.lock, self.db:
@@ -185,9 +240,11 @@ class WebullService:
                 (review_id, self.adapter.environment, account, json.dumps(body), json.dumps(preview), expires,
                  hashlib.sha256(token.encode()).hexdigest(), "REVIEW"))
             self.audit(review_id, "proposal", {"account": account, "order": body, "preview": preview})
-        return {"id": review_id, "confirmation_token": token, "environment": self.adapter.environment,
+        saved = self.row(review_id)
+        digest = hashlib.sha256((saved['environment'] + saved['account'] + saved['body'] + saved['preview'] + str(saved['expires'])).encode()).hexdigest()
+        return {"id": review_id, "confirmation_token": token, "digest": digest, "environment": self.adapter.environment,
                 "account_id": account, "order": body, "estimated_cost": str(preview["estimated_cost"]),
-                "estimated_fee": str(preview["estimated_transaction_fee"]), "expires_at": expires}
+                "estimated_fee": str(preview["estimated_transaction_fee"]), "economic_terms": economic_terms or None, "expires_at": expires}
 
     def row(self, review_id):
         row = self.db.execute("SELECT * FROM reviews WHERE id=?", (review_id,)).fetchone()
@@ -196,11 +253,57 @@ class WebullService:
         return row
 
     def receipt(self, row):
-        return {"id": row["id"], "state": row["state"], "environment": row["environment"],
+        state = row['state']
+        if (row['environment'] == 'production' and json.loads(row['preview']).get('_economic_terms')
+                and state in ('FILLED', 'CANCELLED', 'FAILED')
+                and not json.loads(row['result']).get('_economic_evidence')):
+            state = 'AWAITING_FEE_SETTLEMENT'
+        return {"id": row["id"], "state": state, "environment": row["environment"],
                 "account_id": row["account"],
                 "client_order_id": json.loads(row["body"])["client_order_id"], "detail": row["result"]}
 
     def confirm(self, payload):
+        production = self.adapter.environment == 'production'
+        if production and os.environ.get('BROKER_KILL_SWITCH', 'enabled') != 'disabled':
+            raise BrokerError('Broker kill switch is enabled')
+        fields = {'id', 'confirmation_token', 'approved'} | ({'digest'} if production else set())
+        if not isinstance(payload, dict) or set(payload) != fields:
+            raise BrokerError('Production confirmation requires the immutable review digest')
+        if payload['approved'] is not True or not isinstance(payload['confirmation_token'], str):
+            raise BrokerError('Explicit approval is required')
+        with self.lock:
+            row = self.row(payload['id'])
+            expected = hashlib.sha256((row['environment'] + row['account'] + row['body'] + row['preview'] + str(row['expires'])).encode()).hexdigest()
+            if ((production and (not isinstance(payload['digest'], str) or not hmac.compare_digest(expected, payload['digest'])))
+                    or not hmac.compare_digest(row['token_hash'], hashlib.sha256(payload['confirmation_token'].encode()).hexdigest())):
+                raise BrokerError('Confirmation does not match saved terms')
+            if row['state'] != 'REVIEW':
+                return self.receipt(row)
+            ledger = self.admission if self.admission is not None else AdmissionLedger()
+            try:
+                ledger.reserve('webull', self.adapter.environment, [row['account']], row['id'])
+            except AdmissionError as error:
+                with ledger.connect() as shared:
+                    held = shared.execute('SELECT action_id,owner FROM broker_admission WHERE provider=? AND environment=? AND account_id=?', ('webull', self.adapter.environment, row['account'])).fetchone()
+                if held == (row['id'], 'tradepilot'):
+                    return self.receipt(self.row(row['id'])) | {'state': 'SUBMITTING'}
+                raise BrokerError(str(error)) from None
+            try:
+                ledger.transition(row['id'], 'SUBMITTING')
+                result = self._confirm({k: v for k, v in payload.items() if k != 'digest'})
+                if result['state'] == 'CANCELLED_REVIEW':
+                    ledger.release(row['id'])
+                if result['state'] == 'UNKNOWN':
+                    ledger.transition(row['id'], 'UNKNOWN')
+                return result
+            except Exception:
+                if self.row(row['id'])['state'] == 'REVIEW':
+                    ledger.release(row['id'])  # Existing confirmation proved no send occurred.
+                else:
+                    ledger.transition(row['id'], 'UNKNOWN')
+                raise
+
+    def _confirm(self, payload):
         if not isinstance(payload, dict) or set(payload) - {"id", "confirmation_token", "approved"}:
             raise BrokerError("Confirmation must refer only to the reviewed order")
         if payload.get("approved") is not True:
@@ -219,13 +322,22 @@ class WebullService:
             if self.clock() >= row["expires"]:
                 raise BrokerError("Review expired. Request a new preview.")
             body = json.loads(row["body"])
+            if self.adapter.open_orders(row['account']):
+                raise BrokerError('Existing open orders block a new order until reconciled.')
             self.validate(row["account"], body)
             fresh = self.adapter.preview(row["account"], body)
+            preview_at = self.clock()
             original = json.loads(row["preview"])
+            if self.adapter.environment == 'production':
+                self.economic_check(row['account'], body, original.get('_economic_terms', {}), fresh)
+                if self.clock() - preview_at > 15:
+                    raise BrokerError('Fresh Webull preview became stale during validation')
             if any(number(fresh[k]) != number(original[k]) for k in ("estimated_cost", "estimated_transaction_fee")):
                 raise BrokerError("Webull's cost estimate changed. Review a fresh order before submitting.")
             if self.clock() >= row["expires"]:
                 raise BrokerError("Review expired during validation. Request a new preview.")
+            if self.adapter.environment == 'production' and (os.environ.get('WEBULL_LIVE_TRADING') != 'enabled' or os.environ.get('BROKER_KILL_SWITCH', 'enabled') != 'disabled'):
+                raise BrokerError('Broker writes disabled during validation')
             # Commit approval and attempted submission BEFORE the external side effect.
             with self.db:
                 changed = self.db.execute("UPDATE reviews SET state='SUBMITTING' WHERE id=? AND state='REVIEW'", (review_id,)).rowcount
@@ -282,7 +394,17 @@ class WebullService:
         with self.lock:
             row = self.row(review_id)
             if row["state"] in ("REVIEW", "CANCELLED_REVIEW"):
-                return self.receipt(row)
+                ledger = self.admission if self.admission is not None else AdmissionLedger()
+                with self.db:
+                    self.db.execute('BEGIN IMMEDIATE')
+                    current = self.row(review_id)
+                    if current['state'] in ('REVIEW', 'CANCELLED_REVIEW'):
+                        with ledger.connect() as shared:
+                            held = shared.execute('SELECT action_id,owner FROM broker_admission WHERE provider=? AND environment=? AND account_id=?', ('webull', row['environment'], row['account'])).fetchone()
+                        if held == (review_id, 'tradepilot'):
+                            self.db.execute("UPDATE reviews SET state='CANCELLED_REVIEW' WHERE id=?", (review_id,))
+                            ledger.release(review_id)
+                return self.receipt(self.row(review_id))
             body = json.loads(row["body"])
             detail = self.adapter.detail(row["account"], body["client_order_id"])
             client_id = body["client_order_id"]
@@ -345,9 +467,41 @@ class WebullService:
                     # Keep the last trusted result available for recovery and
                     # clearly explain why the new observation was not adopted.
                     result = {**result, "tradepilot_status_warning": str(exc)}
+                economic_terms = json.loads(row['preview']).get('_economic_terms')
+                if row['environment'] == 'production' and economic_terms and state in ('FILLED', 'CANCELLED', 'FAILED'):
+                    try:
+                        settled = self.detail_candidate(result, row, body)
+                        commission, fees = settled.get('commission'), settled.get('fees')
+                        if not isinstance(commission, dict) or not isinstance(fees, list):
+                            raise BrokerError('Actual fees unavailable; account hold retained until settlement evidence arrives.')
+                        actual = number(commission.get('actual_commission'))
+                        if actual < 0 or actual != number(commission.get('receivable_commission')):
+                            raise BrokerError('Commission settlement incomplete; hold retained.')
+                        types = set()
+                        for fee in fees:
+                            if not isinstance(fee, dict) or not isinstance(fee.get('type'), str) or not fee['type'] or fee['type'] in types:
+                                raise BrokerError('Fee breakdown incomplete; hold retained.')
+                            types.add(fee['type'])
+                            value = number(fee.get('actual_value'))
+                            if value < 0 or value != number(fee.get('receivable_value')):
+                                raise BrokerError('Fee settlement incomplete; hold retained.')
+                            actual += value
+                        quantity = number(settled.get('filled_quantity'))
+                        price = number(settled.get('filled_price')) if quantity else Decimal(0)
+                        if min(quantity, price) < 0:
+                            raise BrokerError('Invalid fill value; hold retained.')
+                        filled = quantity * price
+                        debit = filled + actual if body['side'] == 'BUY' else actual
+                        result['_economic_evidence'] = {'actual_fee': str(actual), 'actual_debit': str(debit), 'fee_currency': 'USD',
+                            'fee_overrun': actual > number(economic_terms['fee_estimate_ceiling']),
+                            'debit_overrun': debit > number(economic_terms['debit_admission_ceiling'])}
+                    except (BrokerError, ExecutionEvidenceError):
+                        result['_economic_warning'] = 'Actual fees or settlement incomplete; account hold retained. Refresh this order later.'
                 self.db.execute("UPDATE reviews SET state=?,result=?,observed_filled_quantity=? WHERE id=?",
                                 (state, json.dumps(result), observed_quantity, review_id))
                 self.audit(review_id, "broker_status", detail)
+            if self.receipt(self.row(review_id))['state'] in ('FILLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'FAILED'):
+                (self.admission if self.admission is not None else AdmissionLedger()).release(review_id)
             return self.receipt(self.row(review_id))
 
     def execution_summary(self, account_id):

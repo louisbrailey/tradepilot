@@ -15,6 +15,7 @@ from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, urlopen, build_opener, ProxyHandler, HTTPRedirectHandler
 from pathlib import Path
+from access_routes import ACCESS_ROUTES, access_request
 from webull_service import BrokerError, WebullAdapter, WebullService
 from evaluation import load_evaluation
 from workspace_service import workspace_request, WORKSPACE_ROUTES
@@ -27,7 +28,7 @@ _local_ai_lock = threading.Lock()
 
 
 def load_private_config(path):
-    allowed = {"KRONOS_HOME", "KRONOS_PYTHON", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY"}
+    allowed = {"KRONOS_HOME", "KRONOS_PYTHON", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY", "COINBASE_LIVE_TRADING", "COINBASE_TRANSFERS", "BROKER_KILL_SWITCH"}
     config = Path(path)
     if config.stat().st_mode & 0o077:
         raise ValueError("Private config must have permissions 600")
@@ -52,6 +53,12 @@ def broker_request(path, payload):
     if not isinstance(payload, dict):
         raise BrokerError("Expected an object")
     service = broker()
+    if path == '/v1/webull/cancel/review':
+        from webull_actions import cancellation_review
+        return cancellation_review(service, payload)
+    if path == '/v1/webull/cancel/confirm':
+        from webull_actions import cancellation_confirm
+        return cancellation_confirm(service, payload)
     if path == "/v1/webull/state":
         return service.state(payload.get("account_id"))
     if path == "/v1/webull/executions":
@@ -407,7 +414,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
-        if self.path not in WORKSPACE_ROUTES + ("/v1/kronos/status", "/v1/kronos/replay", "/v1/setup", "/v1/assistant", "/v1/research", "/v1/research/evaluation", "/v1/webull/state", "/v1/webull/executions", "/v1/webull/review", "/v1/webull/confirm", "/v1/webull/status", "/v1/webull/dismiss"):
+        if self.path not in WORKSPACE_ROUTES + ACCESS_ROUTES + ("/v1/kronos/status", "/v1/kronos/replay", "/v1/setup", "/v1/assistant", "/v1/research", "/v1/research/evaluation", "/v1/webull/state", "/v1/webull/executions", "/v1/webull/review", "/v1/webull/confirm", "/v1/webull/status", "/v1/webull/dismiss", "/v1/webull/cancel/review", "/v1/webull/cancel/confirm"):
             return self.reply(404, {"error": "Not found"})
         expected = os.environ.get("APP_ACCESS_TOKEN", "")
         authorization = self.headers.get_all("Authorization", [])
@@ -438,6 +445,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = load_evaluation()
             elif self.path.startswith("/v1/kronos/"):
                 result = kronos_request(self.path, payload)
+            elif self.path in ACCESS_ROUTES:
+                result = access_request(self.path, payload)
             elif self.path in WORKSPACE_ROUTES:
                 result = workspace_request(self.path, payload)
             elif self.path.startswith("/v1/webull/"):

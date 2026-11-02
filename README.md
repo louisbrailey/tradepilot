@@ -14,6 +14,8 @@ Kronos is available under **Research → Kronos forecasting lab** for local hist
 - Real Massive/Benzinga research and reproducible multi-stage historical evaluation with results in the app.
 - Private TLS pairing, Keychain access token, and a per-user Mac gateway.
 
+See [confirmed broker access, supported scope and safety controls](BROKER-ACCESS.md) for the new Coinbase action screen and Webull cancellation flow. These source changes are not deployed.
+
 ## Run and install
 
 Open `iOS/TradePilot.xcodeproj` in Xcode. Select TradePilot and an installed iPhone simulator to run. A physical installation requires Apple signing and a trusted, paired iPhone with Developer Mode turned on; see [WEBULL-SETUP.md](WEBULL-SETUP.md) and `scripts/install-iphone.sh`.

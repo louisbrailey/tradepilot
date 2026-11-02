@@ -1,3 +1,7 @@
+# Expanded source capabilities
+
+The account-balances route below remains read-only. Separately confirmed trading and internal portfolio transfers are now implemented in source; see [BROKER-ACCESS.md](BROKER-ACCESS.md). Writes remain default-disabled and this change has not been deployed.
+
 # Coinbase read-only accounts
 
 TradePilot includes a personal Coinbase Advanced Trade account adapter in `server/coinbase_service.py`. It fetches every permitted account page and displays available, held and total quantities in each account's own currency. These are asset quantities, not USD valuations. Key restrictions may expose only a subset of the user's portfolios. No trading, transfer, deposit, withdrawal or key-creation method is implemented.

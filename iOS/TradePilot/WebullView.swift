@@ -12,6 +12,8 @@ struct BrokerSnapshot: Decodable {
     let balance: String; let as_of: Double
 }
 struct BrokerReview: Codable, Identifiable {
+    var digest: String? = nil
+    var economic_terms: [String: String]? = nil
     let id: String; let confirmation_token: String; let environment: String; let account_id: String
     let order: [String: String]; let estimated_cost: String; let estimated_fee: String; let expires_at: Double
 }
@@ -165,12 +167,18 @@ struct WebullView: View {
     @State private var symbol = ""
     @State private var quantity = ""
     @State private var limit = ""
+    @State private var feePolicy = "require_provider_cap"
+    @State private var feeCeiling = ""
+    @State private var debitCeiling = ""
+    @State private var headroom = ""
     @State private var review: BrokerReview?
     @State private var reviewBinding: BrokerConnectionBinding?
     @State private var receipt: BrokerReceipt?
     @State private var attempted = false
     @State private var busy = false
     @State private var status = "Connect to load your Webull accounts. Credentials stay on your private server."
+    @State private var cancellation: AccessReview?
+    @State private var cancellationBinding: BrokerConnectionBinding?
     @AppStorage("webullPendingReview") private var pendingID = ""
     @AppStorage("webullPendingEndpoint") private var pendingEndpoint = ""
     @AppStorage("webullPendingAccount") private var pendingAccount = ""
@@ -202,6 +210,25 @@ struct WebullView: View {
                     Text("Pending: \(pendingEnvironment) · account \(pendingAccount)").font(.caption).foregroundStyle(Palette.muted)
                 }
                 Button("Refresh submitted order") { run { try await refreshOrder() } }.disabled(busy)
+                if pendingEnvironment == "production" {
+                    Button("Review cancellation of this order") { run {
+                        let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+                        guard pendingEndpoint == binding.endpoint else { throw mismatchError() }
+                        let r: AccessReview = try await api("cancel/review", ["id": pendingID])
+                        guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
+                        cancellation = r; cancellationBinding = binding
+                    } }.disabled(busy)
+                    if let c = cancellation {
+                        Text(c.summary).font(.caption.monospaced())
+                        Button("Confirm this exact cancellation") { run {
+                            guard cancellationBinding?.matches(endpoint: store.aiEndpoint, token: store.aiToken) == true,
+                                  let token = c.token, c.expires_at > Date().timeIntervalSince1970 else { throw mismatchError() }
+                            cancellation = nil
+                            let r: AccessReview = try await api("cancel/confirm", ["id": c.id, "token": token, "digest": c.digest, "approved": true])
+                            status = "Cancellation: \(r.state). Refresh original order for authoritative status."
+                        } }.disabled(busy || c.expires_at <= Date().timeIntervalSince1970)
+                    }
+                }
             } else if let review {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Review \(review.environment == "production" ? "real" : "sandbox") order").font(.title2.bold())
@@ -209,6 +236,10 @@ struct WebullView: View {
                     Text("Account: \(snapshot?.accounts.first(where: { $0.id == review.account_id })?.label ?? review.account_id)")
                     Text("\(review.order["order_type"] ?? "") · Day · Regular market session")
                     if let price = review.order["limit_price"] { Text("Limit: $\(price)") }
+                    if let terms = review.economic_terms {
+                        ForEach(terms.keys.sorted(), id: \.self) { key in Text("\(key): \(terms[key] ?? "")").font(.caption) }
+                        Text("Actual fees and debit may exceed these pre-send ceilings. They are not provider guarantees.").font(.caption)
+                    }
                     Text("Estimated cost: $\(review.estimated_cost)\nEstimated fees: $\(review.estimated_fee)")
                     Text("Expires \(Date(timeIntervalSince1970: review.expires_at).formatted(date: .omitted, time: .standard)). Market execution prices can change.").font(.caption)
                     Button("Confirm and submit \(review.environment == "production" ? "real" : "sandbox") order") { run { try await confirm(review) } }
@@ -237,12 +268,25 @@ struct WebullView: View {
                     TextField("Number of shares", text: $quantity)
                     TextField("Limit price (blank = market)", text: $limit)
                     Text("Stock purchases and sales only. Review does not submit an order.").font(.caption).foregroundStyle(Palette.muted)
+                    if snapshot?.environment == "production" {
+                        Picker("Fee policy", selection: $feePolicy) {
+                            Text("Require provider cap (unsupported)").tag("require_provider_cap")
+                            Text("Accept rechecked estimate").tag("accept_rechecked_estimate")
+                        }
+                        TextField("USD fee estimate ceiling", text: $feeCeiling)
+                        TextField("USD debit admission ceiling", text: $debitCeiling)
+                        TextField("USD headroom", text: $headroom)
+                        Text("Production requires a limit price. Actual fees and debit may exceed these admission ceilings.").font(.caption)
+                    }
                     Button("Get Webull order preview") { run {
                         journal("request", "Request Webull preview: \(side) \(quantity) \(symbol.uppercased())")
                         let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
                         var body = ["account_id": account, "symbol": symbol.uppercased(), "side": side, "quantity": quantity]
                         if !limit.isEmpty { body["limit_price"] = limit }
+                        let economics = ["fee_policy": feePolicy, "fee_estimate_ceiling": feeCeiling, "debit_admission_ceiling": debitCeiling, "headroom": headroom, "fee_currency": "USD"]
+                        if snapshot?.environment == "production" { body.merge(economics) { _, new in new } }
                         let candidate: BrokerReview = try await api("review", body)
+                        if candidate.environment == "production" && candidate.economic_terms != economics { throw mismatchError() }
                         try validateReview(candidate, account: body["account_id"]!, side: body["side"], symbol: body["symbol"], quantity: body["quantity"], orderType: body["limit_price"] == nil ? "MARKET" : "LIMIT", limitPrice: body["limit_price"])
                         guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
                         reviewBinding = binding
@@ -335,6 +379,12 @@ struct WebullView: View {
             try await load()
             status = "Your Webull holdings are in the table above."
         case .trade(let intent):
+            if snapshot?.environment == "production" {
+                symbol = intent.symbol; side = intent.side.rawValue.uppercased()
+                quantity = NSDecimalNumber(decimal: intent.quantity).stringValue
+                status = "Complete the limit price and fee policy in the editable order form, then request a preview."
+                return
+            }
             let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
             let candidate: BrokerReview = try await api("review", ["account_id": account, "symbol": intent.symbol,
                 "side": intent.side.rawValue.uppercased(), "quantity": NSDecimalNumber(decimal: intent.quantity).stringValue])
@@ -449,7 +499,12 @@ struct WebullView: View {
         guard store.journal.error == nil else {
             status = "Submission is locked for reconciliation because the journal approval could not be saved. \(store.journal.error ?? "Journal unavailable")"; return
         }
-        let candidate: BrokerReceipt = try await api("confirm", ["id": review.id, "confirmation_token": review.confirmation_token, "approved": true])
+        var approval: [String: Any] = ["id": review.id, "confirmation_token": review.confirmation_token, "approved": true]
+        if review.environment == "production" {
+            guard let digest = review.digest else { throw WorkspaceError(message: "Refresh this review to obtain its immutable digest.") }
+            approval["digest"] = digest
+        }
+        let candidate: BrokerReceipt = try await api("confirm", approval)
         try validateReceipt(candidate)
         receipt = candidate
         journal("submission_result", candidate.state + " " + candidate.detail, reference: review.id, accountID: pendingAccount, environment: pendingEnvironment)
