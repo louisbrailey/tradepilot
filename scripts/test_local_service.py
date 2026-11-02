@@ -428,6 +428,28 @@ class LaunchPreflightTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2)
                     self.assertIn(expected, result.stderr)
 
+    def test_iphone_installer_stat_fallback_preserves_permission_gate(self):
+        # Exercise the GNU fallback on macOS too, without reaching device tools.
+        for mode, expected in (("644", "owner-only"), ("600", "Xcode developer directory not found"),
+                               ("400", "Xcode developer directory not found"), (None, "Cannot verify")):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                pairing = root / "TradePilotPairing.json"
+                pairing.write_text("{}")
+                pairing.chmod(0o600)
+                stat = root / "stat"
+                stat.write_text("#!/bin/bash\n"
+                                "[[ \"$1\" == -c && \"$2\" == %a && \"$3\" == -- ]] || exit 1\n" +
+                                ("exit 1\n" if mode is None else "printf '%s\\n' '" + mode + "'\n"))
+                stat.chmod(0o700)
+                env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ.get("PATH", ""),
+                           DEVELOPER_DIR=str(root / "missing-xcode"))
+                result = subprocess.run(["bash", str(SCRIPT.with_name("install-iphone.sh")),
+                                         "00000000-FAKE", str(pairing)], env=env,
+                                        text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected, result.stderr)
+
     def test_iphone_installer_refuses_phone_without_developer_mode(self):
         cases = (
             ("Device Reality: physical\\nDeveloper Mode Status: Disabled", "Developer Mode is off"),
