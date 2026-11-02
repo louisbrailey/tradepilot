@@ -406,7 +406,8 @@ struct AccountsView: View {
         @Bindable var store = store
         Screen(title: "Accounts") {
             NavigationLink { WebullView() } label: { Label("Open Webull account", systemImage: "building.columns.fill") }.buttonStyle(MintButton())
-            NavigationLink { CoinbaseView() } label: { Label("Coinbase balances", systemImage: "bitcoinsign.circle") }.buttonStyle(MintButton())
+            Text("Webull retail funding and withdrawals are unavailable here; institutional Broker API entitlement is separate.").font(.caption).foregroundStyle(Palette.muted)
+            NavigationLink { CoinbaseView() } label: { Label("Coinbase accounts and actions", systemImage: "bitcoinsign.circle") }.buttonStyle(MintButton())
             NavigationLink { PaperTradingView() } label: { Label("Paper trading account", systemImage: "chart.line.uptrend.xyaxis") }.buttonStyle(MintButton())
             Text("Everything you own,\nin one place.").font(.title.bold())
             Text("These are sample accounts. Live connections will depend on the institution’s data and trading permissions.").font(.subheadline).foregroundStyle(Palette.muted)

@@ -27,7 +27,13 @@ if [[ -n "$PAIRING_FILE" ]]; then
   fi
   # The pairing file embeds the access token; refuse one other users can read,
   # matching the private-file checks in manage-local-service.py.
-  PAIRING_MODE="$(stat -f '%Lp' "$PAIRING_FILE")"
+  # BSD stat (macOS) and GNU stat (Linux CI) use different mode flags.
+  if ! PAIRING_MODE="$(stat -f '%Lp' "$PAIRING_FILE" 2>/dev/null)"; then
+    if ! PAIRING_MODE="$(stat -c '%a' -- "$PAIRING_FILE" 2>/dev/null)"; then
+      echo "Cannot verify pairing file permissions: $PAIRING_FILE" >&2
+      exit 2
+    fi
+  fi
   if [[ "$PAIRING_MODE" != 600 && "$PAIRING_MODE" != 400 ]]; then
     echo "Pairing file must be owner-only (chmod 600): $PAIRING_FILE" >&2
     exit 2

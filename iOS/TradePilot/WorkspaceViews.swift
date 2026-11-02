@@ -249,8 +249,9 @@ struct CoinbaseView: View {
     @State private var busy = false
     var body: some View {
         Screen(title: "Coinbase", isDemo: false) {
-            Text("READ-ONLY ACCOUNT CONNECTION").font(.caption.bold()).foregroundStyle(Palette.mint)
-            Text("Balances come from Coinbase Advanced Trade through your private gateway. Configure a Coinbase ECDSA API key on the server; never paste its private key into this app. No trading or transfers are enabled here.").font(.subheadline).foregroundStyle(Palette.muted)
+            NavigationLink("Trading and internal transfers") { CoinbaseActionsView() }
+            Text("ACCOUNT BALANCES").font(.caption.bold()).foregroundStyle(Palette.mint)
+            Text("Balances come from Coinbase Advanced Trade through your private gateway. Configure a Coinbase ECDSA API key on the server; never paste its private key into this app. Open Trading and internal transfers for separately reviewed actions; writes default to disabled.").font(.subheadline).foregroundStyle(Palette.muted)
             Button(busy ? "Loading…" : "Load Coinbase accounts") { refresh() }.buttonStyle(MintButton()).disabled(busy)
             if let snapshot {
                 Text("Updated \(workspaceDate(snapshot.as_of))").font(.caption)
@@ -342,6 +343,207 @@ struct StrategyComparisonView: View {
                 guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
                 guard report.ticker == symbol, report.evidence == "exploratory_previously_observed" else { throw WorkspaceError(message: "Unexpected evaluation provenance.") }
                 result = report; message = "\(symbol) · independent portfolios per period; no automatic strategy selection."
+            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
+        }
+    }
+}
+
+// Typed broker actions stay outside the assistant tool path. The saved server
+// review is immutable; changing any field invalidates the local approval.
+struct AccessReview: Decodable, Sendable {
+    let id: String; let token: String?; let digest: String; let summary: String
+    let expires_at: Double; let state: String
+}
+struct AccessPortfolio: Decodable, Sendable, Identifiable { let id: String; let type: String }
+struct AccessPermissions: Decodable, Sendable {
+    let can_view: Bool; let can_trade: Bool; let can_transfer: Bool; let portfolio_uuid: String
+}
+struct AccessCapabilities: Decodable, Sendable {
+    let provider: String; let environment: String; let granted: AccessPermissions
+    let trading_enabled: Bool; let cancellation_enabled: Bool; let transfers_enabled: Bool; let limitations: [String]
+    let portfolios: [AccessPortfolio]
+}
+struct AccessApproval: Encodable, Sendable {
+    let id: String; let token: String; let digest: String; let approved: Bool
+}
+struct AccessOrder: Decodable, Sendable, Identifiable {
+    var id: String { order_id }
+    let order_id: String; let product_id: String; let side: String; let status: String
+}
+struct AccessOrders: Decodable, Sendable { let orders: [AccessOrder] }
+
+struct CoinbaseActionsView: View {
+    @Environment(AppStore.self) private var store
+    @State private var capabilities: AccessCapabilities?
+    @State private var account = ""
+    @State private var action = "limit_order"
+    @State private var feePolicy = "require_provider_cap"
+    @State private var feeCeiling = ""
+    @State private var debitCeiling = ""
+    @State private var headroom = ""
+    @State private var feeCurrency = ""
+    @State private var product = ""
+    @State private var side = "BUY"
+    @State private var quantity = ""
+    @State private var price = ""
+    @State private var destination = ""
+    @State private var currency = ""
+    @State private var amount = ""
+    @State private var orderID = ""
+    @State private var clientID = UUID().uuidString
+    @State private var review: AccessReview?
+    @State private var reviewedIntent: [String: String]?
+    @State private var reviewedConnection: BrokerConnectionBinding?
+    @State private var busy = false
+    @State private var message = ""
+    @State private var showApproval = false
+    @State private var orders: [AccessOrder] = []
+    @AppStorage("coinbaseLastActionID") private var savedID = ""
+    @AppStorage("coinbaseLastActionEndpoint") private var savedEndpoint = ""
+
+    private var intent: [String: String] {
+        var p = ["client_id": clientID, "action": action, "account_id": account, "environment": "production"]
+        switch action {
+        case "limit_order":
+            p.merge(["product_id": product, "side": side, "base_size": quantity, "limit_price": price,
+                     "fee_policy": feePolicy, "fee_estimate_ceiling": feeCeiling, "debit_admission_ceiling": debitCeiling, "headroom": headroom, "fee_currency": feeCurrency]) { _, new in new }
+        case "cancel_order": p["order_id"] = orderID
+        default:
+            p.merge(["destination": destination, "currency": currency, "amount": amount,
+                     "network": "coinbase_internal", "fee_policy": "internal_no_fee_parameter"]) { _, new in new }
+        }
+        return p
+    }
+    private var canConfirm: Bool {
+        guard let r = review, r.token != nil, r.state == "REVIEW", r.expires_at > Date().timeIntervalSince1970,
+              reviewedIntent == intent, let connection = reviewedConnection,
+              connection.matches(endpoint: store.aiEndpoint, token: store.aiToken), let c = capabilities else { return false }
+        return action == "internal_transfer" ? c.transfers_enabled : (action == "cancel_order" ? c.cancellation_enabled : c.trading_enabled)
+    }
+    var body: some View {
+        Screen(title: "Coinbase actions", isDemo: false) {
+            Text("PRODUCTION · MANUAL CONFIRMATION").font(.caption.bold())
+            Text("Each submission needs a fresh saved review. Broker writes and transfers have separate server switches. Unknown results block this account across apps until resolved.").font(.caption)
+            Button("Refresh permissions and portfolios") { load() }.disabled(busy)
+            if let c = capabilities {
+                Text("Provider permissions — view: \(c.granted.can_view ? "yes" : "no"), trade: \(c.granted.can_trade ? "yes" : "no"), transfer: \(c.granted.can_transfer ? "yes" : "no")")
+                Text("Server trading: \(c.trading_enabled ? "enabled" : "disabled") · transfers: \(c.transfers_enabled ? "enabled" : "disabled")")
+                ForEach(c.limitations, id: \.self) { Text($0).font(.caption).foregroundStyle(Palette.muted) }
+                Picker("Source portfolio", selection: $account) {
+                    Text("Select portfolio").tag("")
+                    ForEach(c.portfolios) { Text($0.id).tag($0.id) }
+                }
+                Picker("Action", selection: $action) {
+                    Text("Spot limit order · GTC").tag("limit_order")
+                    Text("Cancel order").tag("cancel_order")
+                    Text("Internal portfolio transfer").tag("internal_transfer")
+                }
+                if action == "limit_order" {
+                    TextField("Exact product, e.g. BTC-USD", text: $product)
+                    Picker("Side", selection: $side) { Text("Buy").tag("BUY"); Text("Sell").tag("SELL") }
+                    TextField("Quantity in base-asset units", text: $quantity)
+                    TextField("Limit price in quote currency", text: $price)
+                    Picker("Fee policy", selection: $feePolicy) {
+                        Text("Require provider cap (unsupported)").tag("require_provider_cap")
+                        Text("Accept a rechecked estimate").tag("accept_rechecked_estimate")
+                    }
+                    TextField("Fee estimate ceiling", text: $feeCeiling)
+                    TextField("Debit admission ceiling", text: $debitCeiling)
+                    TextField("Explicit headroom", text: $headroom)
+                    TextField("Fee currency (product quote currency)", text: $feeCurrency)
+                    Text("Actual fees and debit may exceed these pre-send ceilings. These are admission checks, not provider guarantees. Review and explicitly opt in to estimated fees.").font(.caption)
+                    Text("GTC spot limit only. Commission is estimated and rechecked before submission; Coinbase provides no hard fee ceiling. No leverage or short selling.").font(.caption)
+                } else if action == "cancel_order" {
+                    Button("Load account orders") { loadOrders() }.disabled(busy)
+                    TextField("Exact broker order ID", text: $orderID)
+                    ForEach(orders) { order in
+                        Button("\(order.product_id) \(order.side) · \(order.status) · \(order.order_id)") { orderID = order.order_id }
+                    }
+                } else {
+                    Picker("Destination portfolio", selection: $destination) {
+                        Text("Select destination").tag("")
+                        ForEach(c.portfolios) { Text($0.id).tag($0.id) }
+                    }
+                    TextField("Exact asset, e.g. USDC", text: $currency)
+                    TextField("Asset amount", text: $amount)
+                    Text("Internal Coinbase portfolio movement only. This does not withdraw crypto to an address or transfer money to a bank. This API has no network or fee parameter. A successful response confirms the exact saved request; balances are not independently measured. An uncertain result blocks both portfolios and cannot be retried automatically.").font(.caption)
+                }
+                Button("Prepare saved review") { prepare() }.disabled(busy || account.isEmpty)
+            }
+            if let r = review {
+                Text(r.summary).font(.caption.monospaced()).textSelection(.enabled)
+                Text("State: \(r.state) · expires \(workspaceDate(r.expires_at))")
+                Button("Confirm this exact action") { showApproval = true }.disabled(busy || !canConfirm)
+            }
+            if !savedID.isEmpty && savedEndpoint == store.aiEndpoint {
+                Button("Refresh saved action and reconcile") { reconcile() }.disabled(busy)
+            }
+            Text(message).font(.caption).textSelection(.enabled)
+        }
+        .disabled(busy)
+        .onChange(of: intent) { _, _ in review = nil; reviewedIntent = nil }
+        .onChange(of: store.aiEndpoint) { _, _ in clearConnection() }
+        .onChange(of: store.aiToken) { _, _ in clearConnection() }
+        .confirmationDialog("Submit the exact reviewed production action?", isPresented: $showApproval, titleVisibility: .visible) {
+            Button("Submit reviewed action", role: .destructive) { confirm() }
+            Button("Keep reviewing", role: .cancel) {}
+        } message: { Text("This can affect real funds. Only the saved terms displayed above will be submitted.") }
+    }
+    private func clearConnection() { capabilities = nil; review = nil; reviewedIntent = nil; orders = []; account = "" }
+    private func load() {
+        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+        busy = true; review = nil
+        Task { defer { busy = false }
+            do {
+                let c: AccessCapabilities = try await WorkspaceAPI.request("v1/coinbase/capabilities", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
+                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), c.provider == "coinbase", c.environment == "production" else { return }
+                capabilities = c; message = "Permissions verified from provider metadata. No transaction has been tested."
+            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
+        }
+    }
+    private func prepare() {
+        clientID = UUID().uuidString
+        let p = intent, b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+        busy = true; review = nil
+        Task { defer { busy = false }
+            do {
+                let r: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/review", body: p, endpoint: b.endpoint, token: b.token)
+                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), p == intent else { return }
+                review = r; reviewedIntent = p; reviewedConnection = b; savedID = r.id; savedEndpoint = b.endpoint
+                message = "Review every field before confirming."
+            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
+        }
+    }
+    private func confirm() {
+        guard canConfirm, let r = review, let token = r.token, let b = reviewedConnection else { return }
+        busy = true; review = nil
+        Task { defer { busy = false }
+            do {
+                let result: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/confirm", body: AccessApproval(id: r.id, token: token, digest: r.digest, approved: true), endpoint: b.endpoint, token: b.token)
+                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+                review = result; message = "Saved result: \(result.state). Refresh to reconcile; never recreate an uncertain action."
+            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = "Result uncertain. Refresh the saved action. " + error.localizedDescription } }
+        }
+    }
+    private func reconcile() {
+        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), id = savedID
+        busy = true
+        Task { defer { busy = false }
+            do {
+                let r: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/reconcile", body: ["id": id], endpoint: b.endpoint, token: b.token)
+                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+                review = r; message = "Saved state: \(r.state). UNKNOWN requires authoritative resolution; no automatic retry."
+            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
+        }
+    }
+    private func loadOrders() {
+        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), selected = account
+        busy = true
+        Task { defer { busy = false }
+            do {
+                let r: AccessOrders = try await WorkspaceAPI.request("v1/coinbase/orders", body: ["account_id": selected], endpoint: b.endpoint, token: b.token)
+                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), selected == account else { return }
+                orders = r.orders
             } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
         }
     }

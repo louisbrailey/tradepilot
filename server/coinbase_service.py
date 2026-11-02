@@ -56,7 +56,7 @@ class CoinbaseAdapter:
         return bool(isinstance(self.key_name, str) and self.key_name.strip() and
                     isinstance(self.private_key, str) and self.private_key.strip())
 
-    def _token(self):
+    def _token(self, method="GET", path=PATH):
         if not self.configured:
             raise CoinbaseError('Coinbase read-only access is not configured.', 'not_configured')
         if not re.fullmatch(r'organizations/[A-Za-z0-9_-]+/apiKeys/[A-Za-z0-9_-]+', self.key_name):
@@ -76,7 +76,7 @@ class CoinbaseAdapter:
             now = int(self.clock())
             header = {'alg': 'ES256', 'typ': 'JWT', 'kid': self.key_name, 'nonce': secrets.token_hex(16)}
             payload = {'iss': 'cdp', 'sub': self.key_name, 'nbf': now, 'exp': now + 120,
-                       'uri': 'GET ' + HOST + PATH}
+                       'uri': method + ' ' + HOST + path}
             segments = [_b64(json.dumps(x, separators=(',', ':')).encode()) for x in (header, payload)]
             signing = '.'.join(segments).encode('ascii')
             r, s = utils.decode_dss_signature(key.sign(signing, ec.ECDSA(hashes.SHA256())))
