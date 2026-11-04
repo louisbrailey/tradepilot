@@ -1,3 +1,9 @@
+# November 4, 2026 — physical app paths checked and gateway aligned
+
+Direct checks on the USB iPhone verified Overview, Holdings, demo confirmation, persistent paper fill/journal, Massive research, strategy comparison, five-session Kronos replay and local AI. Coinbase/Webull disconnected controls rendered; real accounts were not used as tests. The matching merged gateway routes are now deployed with the existing runtime and configuration retained. A local AI failure was traced to Lima shadowing IPv4 Ollama; explicit IPv6 loopback routing restored the configured native model, and the phone AI request succeeded. Live trading remains disabled.
+
+See [phone verification, exact simulated ledger changes and remaining limits](reports/phone-verification-2026-11-04.md). The full gate passed before this fix; all 202 backend tests pass afterward (one optional signing test skipped).
+
 # November 4, 2026 — physical iPhone installed
 
 Signed build succeeded and TradePilot 0.1.0 (build 1) was installed on the USB-connected iPhone 16 (`00008140-0010646A1413801C`). Developer Mode is enabled. The pairing file was copied successfully. After the user trusted the developer profile, `devicectl` launched the app successfully. The process remained running, and app preferences copied back from the physical device confirm the paired endpoint and pinned origin are `https://louiss-macbook-pro-8.local:8787`. Device Hub remained at “Connecting display”. The user then ran Accounts → Check connection & setup on the physical phone and confirmed that connection/setup details appeared, establishing phone-to-gateway connectivity. Other app screens and broker workflows have not been verified on this phone.

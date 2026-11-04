@@ -128,6 +128,19 @@ class LocalAITests(unittest.TestCase):
                 server.model_reply({}, server.INSTRUCTIONS)
             local.assert_not_called(); remote.assert_not_called()
 
+    def test_ipv6_loopback_and_remote_host_rejection(self):
+        class Response(io.BytesIO):
+            status = 200
+        with patch.dict(server.os.environ, {"OLLAMA_LOOPBACK_HOST": "::1"}), patch.object(server, "build_opener") as build:
+            build.return_value.open.return_value.__enter__.return_value = Response(b'{}')
+            self.assertEqual(server.local_ollama_request("/api/show", {}, timeout=10), {})
+            self.assertEqual(build.return_value.open.call_args.args[0].full_url, "http://[::1]:11434/api/show")
+        for host in ("localhost", "192.168.1.2", "remote.example", "::ffff:127.0.0.1", ""):
+            with self.subTest(host=host), patch.dict(server.os.environ, {"OLLAMA_LOOPBACK_HOST": host}), patch.object(server, "build_opener") as build:
+                with self.assertRaisesRegex(RuntimeError, "explicit loopback"):
+                    server.local_ollama_request("/api/show", {}, timeout=10)
+                build.assert_not_called()
+
     def test_busy_local_model_does_not_queue_another_generation(self):
         server._local_ai_lock.acquire()
         try:

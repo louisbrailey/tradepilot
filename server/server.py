@@ -28,7 +28,7 @@ _local_ai_lock = threading.Lock()
 
 
 def load_private_config(path):
-    allowed = {"KRONOS_HOME", "KRONOS_PYTHON", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY", "COINBASE_LIVE_TRADING", "COINBASE_TRANSFERS", "BROKER_KILL_SWITCH"}
+    allowed = {"KRONOS_HOME", "KRONOS_PYTHON", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "OLLAMA_LOOPBACK_HOST", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY", "COINBASE_LIVE_TRADING", "COINBASE_TRANSFERS", "BROKER_KILL_SWITCH"}
     config = Path(path)
     if config.stat().st_mode & 0o077:
         raise ValueError("Private config must have permissions 600")
@@ -202,7 +202,12 @@ class NoLocalRedirects(HTTPRedirectHandler):
 def local_ollama_request(path, body, timeout):
     if path not in ("/api/show", "/api/chat"):
         raise RuntimeError("Unsupported local model operation")
-    request = Request("http://127.0.0.1:11434" + path, data=json.dumps(body).encode(),
+    # Explicit loopback selection avoids a VM port-forward shadowing native Ollama.
+    host = os.environ.get("OLLAMA_LOOPBACK_HOST", "127.0.0.1")
+    if host not in ("127.0.0.1", "::1"):
+        raise RuntimeError("Ollama host must be an explicit loopback address")
+    authority = "[::1]" if host == "::1" else host
+    request = Request("http://" + authority + ":11434" + path, data=json.dumps(body).encode(),
                       headers={"Content-Type": "application/json"})
     # Never inherit HTTP_PROXY/OLLAMA_HOST or follow a redirect with portfolio
     # context. The private gateway connects to this Mac's daemon only.

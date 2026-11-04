@@ -2,7 +2,7 @@
 
 A native iPhone assistant for reviewing portfolios, preparing explicitly confirmed trades, and keeping research and a trade journal together.
 
-**Current verified status:** see [LATEST-STATUS.md](LATEST-STATUS.md). The app runs in Apple’s iPhone simulator with working local AI and real Massive research. Physical-phone installation and Webull account authorization remain blocked. Live trading is disabled.
+**Current verified status:** see [LATEST-STATUS.md](LATEST-STATUS.md). The app is installed and verified on a physical iPhone with local AI, Massive research, paper execution, strategy comparison and Kronos replay. See [physical-phone checks](reports/phone-verification-2026-11-04.md). Real broker access remains separately gated. Live trading is disabled.
 
 Kronos is available under **Research → Kronos forecasting lab** for local historical forecasts and baseline comparisons. See [Kronos setup and verification](KRONOS.md).
 
@@ -14,7 +14,7 @@ Kronos is available under **Research → Kronos forecasting lab** for local hist
 - Real Massive/Benzinga research and reproducible multi-stage historical evaluation with results in the app.
 - Private TLS pairing, Keychain access token, and a per-user Mac gateway.
 
-See [confirmed broker access, supported scope and safety controls](BROKER-ACCESS.md) for the new Coinbase action screen and Webull cancellation flow. These source changes are not deployed.
+See [confirmed broker access, supported scope and safety controls](BROKER-ACCESS.md) for the new Coinbase action screen and Webull cancellation flow. The matching gateway routes are deployed; this does not establish real broker access or enable live submissions.
 
 ## Run and install
 

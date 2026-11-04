@@ -34,3 +34,7 @@ TradePilot allows 10 seconds for model metadata and 90 seconds for chat inferenc
 Only one local inference runs per gateway process. A second request fails promptly while the first is busy. The gateway handles independent HTTP requests concurrently so model generation does not hold portfolio, setup, or order-status requests in a single request queue. Large local models may still compete with other Mac applications for memory and processor time.
 
 Twelve focused local-provider tests cover schema requests, metadata checks before context is sent, disabled proxy/redirect behavior, malformed and partial output, wrong models, errors, timeouts, busy inference, configuration, and refusal to use a remote fallback. The full backend suite passed 90 tests at implementation time. Real local-model performance and device behavior require the separate deployment checks; unit tests alone do not establish either.
+
+## Multiple local Ollama daemons
+
+`OLLAMA_LOOPBACK_HOST` may be `127.0.0.1` (default) or `::1` only. Set it to `::1` in the private gateway config when a VM forwarding IPv4 port 11434 shadows the native Mac daemon. The selected model is still checked for local weights, and proxy, redirect and remote-model rejection remain in force. No provider or model fallback is added.
