@@ -1,3 +1,7 @@
+# November 4, 2026 — Webull account connected on the phone
+
+At the user’s request, loaded the existing production Webull connection from TradePilot on the USB iPhone, selected the authorized Individual Cash account, and refreshed its portfolio. Current balance details and an empty holdings table rendered successfully. This is direct read-access verification, not a fake-provider test. Credentials and existing authorization stayed on the gateway; no trading flag was changed and no order, cancellation or transfer was performed. See [Webull setup](WEBULL-SETUP.md).
+
 # November 4, 2026 — physical app paths checked and gateway aligned
 
 Direct checks on the USB iPhone verified Overview, Holdings, demo confirmation, persistent paper fill/journal, Massive research, strategy comparison, five-session Kronos replay and local AI. Coinbase/Webull disconnected controls rendered; real accounts were not used as tests. The matching merged gateway routes are now deployed with the existing runtime and configuration retained. A local AI failure was traced to Lima shadowing IPv4 Ollama; explicit IPv6 loopback routing restored the configured native model, and the phone AI request succeeded. Live trading remains disabled.

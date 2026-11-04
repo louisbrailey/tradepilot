@@ -9,6 +9,7 @@
 - [x] Saved release notes, installation status and continuity checkpoint. (reports/review-2026-10-26/RELEASE-NOTES.md, DEVICE-CONNECTION-REPORT.md, codex-recall checkpoint 2026-10-26.)
 - [x] Claude independently reviews current source — done 2026-10-26; see reports/review-2026-10-26/REVIEW.md.
 - [x] Physical iPhone signed, installed, launched and paired. (USB iPhone 16, Developer Mode enabled; direct Mirroring checks November 4 documented in reports/phone-verification-2026-11-04.md.)
-- [ ] Real Webull/Coinbase account connectivity (requires valid provider credentials/auth; never inferred from tests).
+- [x] Real Webull account connectivity: physical iPhone account list, portfolio and balances loaded November 4 using existing production authorization; live trading remains disabled.
+- [ ] Real Coinbase account connectivity (requires valid provider credentials/auth; never inferred from tests).
 
 Follow-on product scope retained explicitly: Fidelity supported data access, live crypto/options/short execution, dividend/FX/intraday strategy implementations with appropriate data, automated prospective strategy operation, and remote always-on infrastructure. Do not mark these complete from exploratory research or a manual paper ledger.

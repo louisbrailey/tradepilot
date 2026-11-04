@@ -2,12 +2,14 @@
 
 TradePilot includes a private backend adapter for Webull account/position reads, stock-order previews, explicit confirmation, durable submission records, and status refresh. It is not yet a verified live trading connection.
 
-## Current status
+## Current status — November 4, 2026
 
-- Webull approved **TradePilot Personal** and a key has been generated. The backend private key is saved outside `outputs/TradePilot`.
-- Read-only Webull configuration succeeds. Mobile token creation currently returns `417 NO_AVAILABLE_DEVICE`.
-- Next action: open or update the Webull iPhone app, sign in, and retry token creation. Do not put broker credentials in the iOS app or in this repository.
-- Xcode setup is complete enough for a generic unsigned build and signed simulator build: the license is accepted and Personal Team `ANWNGW59GP` is selected. The simulator launched and was visually checked. The physical iPhone 16 Pro is connected and paired with this Mac, but Developer Mode is off on the phone, so Xcode cannot build to it and no signed device install has been completed.
+- Webull is connected on the physical USB iPhone using the existing private gateway credentials and saved authorization. No new keys were needed.
+- In TradePilot → Accounts → Open Webull account, Load accounts returned the authorized Individual Cash account. Selecting it and tapping Refresh portfolio loaded current USD balance details and an empty holdings table successfully. This is direct production read-access proof, separate from the automated fake-provider tests.
+- The phone has Developer Mode enabled, the development profile trusted, and the current app installed and paired to `louiss-macbook-pro-8.local`.
+- Live submission remains disabled. No real order, cancellation, transfer or order preview was performed during setup.
+- To refresh later, open the Webull screen, select the account and tap Refresh portfolio. The Mac must remain awake and reachable from the phone.
+- Earlier `417 NO_AVAILABLE_DEVICE` and physical-install blockers are resolved for this setup.
 
 ## Private backend configuration
 
@@ -50,7 +52,7 @@ The private directory must contain `config.json`, `server.pem`, and `server.key`
 
 The Webull screen supports exact portfolio commands and a manual stock-order form. The backend validates account authorization and long-stock holdings, obtains a cost preview, and requires a fresh explicit confirmation. It records submission intent before contacting Webull, uses stable review identity, and exposes provider states including unknown and partial fill. A submitted order is not necessarily filled.
 
-Regular-session DAY stock orders (market or limit) are the supported scope. Short opening, options, crypto, transfers, and broker-order cancellation are not implemented. Keep live execution disabled until read-only access, provider preview, mobile pairing, and reconciliation have all been tested.
+The deployed source supports long-stock LIMIT/DAY production reviews and separately confirmed cancellation of app-tracked orders; sandbox market/DAY behavior remains available. See [BROKER-ACCESS.md](BROKER-ACCESS.md) for fee/admission policy and capability limits. Short opening, options, crypto and retail transfers are not implemented. Production read access and mobile pairing are now verified; provider preview, submission and reconciliation have not been verified on this phone, and live execution remains disabled.
 
 ## Secure phone connection
 
