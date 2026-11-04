@@ -1,3 +1,9 @@
+# November 4, 2026 — physical iPhone installed
+
+Signed build succeeded and TradePilot 0.1.0 (build 1) was installed on the USB-connected iPhone 16 (`00008140-0010646A1413801C`). Developer Mode is enabled. The pairing file was copied successfully. iOS currently refuses first launch pending developer-profile trust; installation is verified, launch and phone-to-gateway access remain unverified.
+
+The Mac is back on the LAN at `192.168.68.56`. The gateway was deliberately re-paired for the current hostname `louiss-macbook-pro-8.local`; previous pairing/config files are preserved in `private/previous-pairing-20261104`, and the access token is unchanged. A certificate-verified, authenticated `/v1/setup` request returned HTTP 200 over the LAN address. The new pairing was copied to the phone. This check did not contact a broker. Build/install evidence: `.toolkit-runs/20261104T083539.860542Z.log` (overall exit 1 because first launch was refused after successful build/install/copy).
+
 # October 26, 2026 — Claude review
 
 Claude independently reviewed the source and fixed four issues:
