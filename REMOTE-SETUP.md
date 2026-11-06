@@ -6,18 +6,24 @@ This plan includes the gateway, paper scheduler, AI and Kronos on one remote hos
 
 ## Hosting choice and cost
 
-Proposed: DigitalOcean Basic, Regular CPU, **4 vCPU / 8 GB RAM / 160 GB SSD**, Ubuntu
-24.04 x86_64 in a US region near the user (SFO if available). Published price on
-November 5, 2026: **$48/month**. Weekly Basic backups add 20%, giving **$57.60/month
-before tax**. Confirm the displayed plan and backup type before creating it. No
-GPU, managed database, extra volume, paid AI API or automatic upgrade is planned.
-Set a $60 usage alert; an alert is not a hard billing cap. Confirm included transfer
-and any overage terms in the actual checkout. Powering off does not end server billing;
-delete unused resources deliberately after preserving state.
+Selected after the user requested lower cost: **OVHcloud US VPS-2 2027**, **4 shared
+vCores / 8 GB RAM / 75 GB NVMe**, Ubuntu 24.04 x86_64, Canada East (Beauharnois).
+The live configurator on November 5, 2026 shows **$10/month with no long-term
+commitment**, plus **$2.20/month Premium automatic backup** for seven daily restore
+points: **$12.20/month before tax**. This replaces the $57.60 DigitalOcean proposal;
+do not create or pay for that older proposal. The advertised $8.50 base rate requires
+12 months upfront and is not the selected billing arrangement.
 
-Sources: [Droplet prices](https://www.digitalocean.com/pricing/droplets),
-[backup prices](https://docs.digitalocean.com/products/backups/details/pricing/),
-[server creation](https://docs.digitalocean.com/products/droplets/how-to/create/).
+Confirm the exact checkout, renewal amount, taxes and included IPv4 before payment.
+No GPU, managed database, additional volume, paid AI API or automatic upgrade is
+planned. The configurator currently offers this model in Canada, and says services
+outside US regions cannot be modified/upgraded after delivery. Do not rely on an
+in-place resize if capacity tests fail. Monthly service renews automatically; powering
+off does not cancel billing. Preserve state before explicit service cancellation.
+
+Sources: [VPS specifications](https://us.ovhcloud.com/vps/),
+[live configurator](https://us.ovhcloud.com/vps/configurator/?planCode=vps-2027-model2),
+[billing and cancellation](https://support.us.ovhcloud.com/hc/en-us/articles/360002306224-Overview-of-Billing-with-OVHcloud-US).
 
 The Mac's Qwen35 27.3B model will be replaced on this host by **Qwen3.5:4b**;
 the 27.3B model is not a realistic fit for this memory budget. Smaller AI may have
@@ -47,7 +53,7 @@ hosting operator cannot access guest data. Keep broker writes and transfers disa
 ## Stage the host without activating a second paper worker
 
 1. Complete the hosting account, billing and exact plan selection. Use an SSH key,
-   MFA and a cloud firewall. Initially permit SSH only from the operator's current
+   MFA and a host firewall, plus provider filtering where available. Initially permit SSH only from the operator's current
    IP; deny public inbound 8787 and 11434. Permit outbound HTTPS and Tailscale's
    documented connectivity. Keep console recovery access available.
 2. Install Tailscale using its official Ubuntu instructions, join the existing
