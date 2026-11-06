@@ -211,6 +211,9 @@ struct DashboardView: View {
             NavigationLink { PaperTradingView() } label: {
                 Label("Paper trading · saved simulation", systemImage: "chart.line.uptrend.xyaxis")
             }.buttonStyle(MintButton())
+            NavigationLink { AutomatedPaperView() } label: {
+                Label("Automated paper strategies", systemImage: "clock.arrow.circlepath")
+            }
             Button { store.tab = 4 } label: { Label("Research, strategy lab & journal", systemImage: "book.closed") }
             DisclosureGroup("Explore the demo workspace") {
                 VStack(alignment: .leading, spacing: 24) { DemoBanner(); demoContent }.padding(.top, 16)

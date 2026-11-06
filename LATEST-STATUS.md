@@ -1,3 +1,11 @@
+# November 5, 2026 — automated paper strategies started (0.3.0)
+
+Version 0.3.0 (build 3) adds three fixed prospective SPY experiments with separate $10,000 simulated accounts, scheduled by the Mac gateway after 20:15 Eastern on market sessions. Immutable protocol/code hashes, precommitted next-session intentions, costed decimal accounting, stop controls, drawdown/data holds and restart/concurrency protection are implemented. Manual paper and real broker accounts remain separate; no broker writes are enabled.
+
+The gateway is deployed and the phone app installed. The three experiments were started from the physical iPhone and the background worker recorded their first November 5 observation with real, complete Massive data. Each has one observation and zero fills, with its next intent saved for November 6. This is initial forward-recording evidence; the first future-session settlement remains unobserved. See [protocol and controls](AUTOMATED-PAPER.md) and [release evidence](reports/automated-paper-2026-11-05.md).
+
+Final full checks passed: 13 core, 219 backend (one optional signing skip under default Python), 41 script tests and Swift smoke/typechecks. All 219 backend tests also passed under the deployed Python, including signing. The signed native build passed. Keep the Mac awake; the existing local-development signing expiry remains November 11 at 00:35 Pacific.
+
 # November 5, 2026 — version 0.2.0 installed and checked
 
 TradePilot 0.2.0 (build 2) is installed and running on the USB iPhone 16. Overview, Holdings and Accounts now lead to real Webull/Coinbase connections, with sample data in clearly labeled disclosures. Webull has labeled currency balances; Coinbase has readable asset cards, exact zero-balance filtering and read-only order history. Action availability requires both provider grants and gateway controls. Connection settings have their own screen and report Coinbase configuration without claiming provider verification.

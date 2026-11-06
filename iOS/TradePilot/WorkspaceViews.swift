@@ -100,6 +100,7 @@ struct PaperTradingView: View {
     @State private var requestID = UUID().uuidString
     var body: some View {
         Screen(title: "Paper trading", isDemo: false) {
+            NavigationLink("Automated paper strategies") { AutomatedPaperView() }
             Text("PAPER · NO REAL MONEY").font(.caption.bold()).foregroundStyle(Palette.mint)
             Text("A persistent $10,000 practice account. Orders simulate a fill at the last completed daily close with 10 bps slippage. Prices are delayed; these are not broker fills or proof of achievable returns.").font(.subheadline).foregroundStyle(Palette.muted)
             HStack {
@@ -588,6 +589,170 @@ struct CoinbaseActionsView: View {
                 guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), selected == account else { return }
                 orders = r.orders; message = r.orders.isEmpty ? "No orders returned for this portfolio." : "Loaded \(r.orders.count) orders."
             } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
+        }
+    }
+}
+
+// Separate from manual paper reviews: starting a fixed protocol authorizes only
+// its future simulated fills. This API has no broker/account identifier input.
+struct AutomatedPaperStart: Encodable, Sendable {
+    let client_id: String
+    let approved = true
+}
+struct AutomatedPaperProtocol: Decodable, Sendable {
+    let version: String; let rule: String; let schedule: String
+    let initial_cash: String; let entry_fraction: String; let max_entry: String; let cost_bps: Int
+}
+struct AutomatedPaperDecision: Decodable, Sendable {
+    let long: Bool; let session: String; let recorded_at: Double; let budget: String
+}
+struct AutomatedPaperEvent: Decodable, Sendable, Identifiable {
+    let id: Int; let at: Double; let kind: String; let message: String
+}
+struct AutomatedPaperRun: Decodable, Sendable, Identifiable {
+    let id: String; let strategy: String; let symbol: String; let status: String; let reason: String
+    let cash: String; let quantity: String; let equity: String; let realized: String; let costs: String
+    let max_drawdown: String; let last_session: String?; let next_session: String
+    let observations: Int; let fills: Int; let created_at: Double; let updated_at: Double
+    let pending: AutomatedPaperDecision?; let events: [AutomatedPaperEvent]
+    let `protocol`: AutomatedPaperProtocol
+    var active: Bool { ["running", "waiting_data"].contains(status) }
+    var title: String {
+        switch strategy {
+        case "trend_sma_20_50": return "Trend · SMA 20 / 50"
+        case "breakout_20": return "Breakout · 20 sessions"
+        case "mean_reversion_20": return "Mean reversion · SMA 20"
+        default: return strategy
+        }
+    }
+    var statusLabel: String {
+        switch status {
+        case "running": return "Running"
+        case "waiting_data": return "Waiting for data"
+        case "data_hold": return "Stopped · data check"
+        case "risk_paused": return "Stopped · drawdown limit"
+        case "paused": return "Stopped by you"
+        default: return status
+        }
+    }
+    var drawdownPercent: String {
+        guard let value = PaperValidation.decimal(max_drawdown) else { return "Unavailable" }
+        return NSDecimalNumber(decimal: value * 100).stringValue + "%"
+    }
+}
+struct AutomatedPaperSnapshot: Decodable, Sendable {
+    let mode: String; let version: String; let notice: String; let runs: [AutomatedPaperRun]
+    let worker_checked_at: Double?; let checked_at: Double
+}
+
+struct AutomatedPaperView: View {
+    @Environment(AppStore.self) private var store
+    @State private var snapshot: AutomatedPaperSnapshot?
+    @State private var busy = false
+    @State private var message = ""
+    @State private var showStart = false
+    @State private var requestID = UUID().uuidString
+    @State private var startBinding: BrokerConnectionBinding?
+    var body: some View {
+        Screen(title: "Paper strategies", isDemo: false) {
+            Text("AUTOMATED PAPER · NO REAL MONEY").font(.caption.bold()).foregroundStyle(Palette.mint)
+            Text("Three SPY rules · $10,000 simulated cash each. Separate from your manual paper and real accounts.").font(.subheadline)
+            HStack {
+                Button("Refresh status") { request("state", body: EmptyWorkspaceRequest()) }
+                Spacer()
+                Button("Check schedule") { request("check", body: EmptyWorkspaceRequest()) }
+            }.disabled(busy)
+            if let snapshot {
+                if let heartbeat = snapshot.worker_checked_at {
+                    Text("Scheduler last checked \(workspaceDate(heartbeat))").font(.caption)
+                    if Date().timeIntervalSince1970 - heartbeat > 180 {
+                        Text("Scheduler heartbeat is stale. Check the Mac gateway before expecting another run.").font(.caption).foregroundStyle(.orange)
+                    }
+                } else { Text("Scheduler has not checked yet.").font(.caption).foregroundStyle(.orange) }
+                if snapshot.runs.contains(where: \.active) {
+                    Button("Stop all paper strategies") { request("pause", body: ["id": "all"]) }.disabled(busy)
+                } else {
+                    Button("Start three SPY paper strategies") {
+                        startBinding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+                        showStart = true
+                    }.buttonStyle(MintButton()).disabled(busy)
+                }
+                Text("\(snapshot.runs.filter { $0.active }.count) active · \(snapshot.runs.reduce(0) { $0 + $1.fills }) simulated fills").font(.caption)
+                DisclosureGroup("Schedule, rules and stopping") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Decisions are saved after 8:15 pm New York time. The next session’s simulated opening fill is recorded after that session ends. Keep your Mac awake; the phone app can be closed.")
+                        Text("Stopping cancels pending simulations and retains recorded holdings without new marks. It does not sell them. Start a new experiment to continue with fresh simulated cash.")
+                        Text(snapshot.notice)
+                    }.font(.caption).padding(.top, 8)
+                }
+                ForEach(snapshot.runs) { run in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(run.title).font(.headline)
+                        Text("\(run.symbol) · \(run.statusLabel)").font(.subheadline).foregroundStyle(run.active ? Palette.mint : .orange)
+                        LabeledContent("Paper equity", value: workspaceMoney(run.equity))
+                        Text("\(run.observations) sessions · \(run.fills) simulated fills").font(.caption)
+                        DisclosureGroup("Protocol and history") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(run.reason)
+                                LabeledContent("Cash", value: workspaceMoney(run.cash))
+                                LabeledContent("Shares", value: run.quantity)
+                                LabeledContent("Recorded drawdown", value: run.drawdownPercent)
+                                Text("Last session: \(run.last_session ?? "none yet")")
+                                if let pending = run.pending {
+                                    Text("Saved intent: \(pending.long ? "long" : "cash") for \(pending.session)")
+                                } else if run.active { Text("First observation: \(run.next_session)") }
+                                Text(run.protocol.rule)
+                                Text("Started \(workspaceDate(run.created_at)) · \(run.protocol.version)")
+                                Text("Modeled costs: \(workspaceMoney(run.costs)) · realized result: \(workspaceMoney(run.realized))")
+                                ForEach(run.events) { event in
+                                    Text("\(workspaceDate(event.at)) · \(event.message)").textSelection(.enabled)
+                                }
+                                if run.active { Button("Stop this strategy") { request("pause", body: ["id": run.id]) }.disabled(busy) }
+                            }.font(.caption).padding(.top, 8)
+                        }
+                    }.font(.subheadline.monospacedDigit()).card()
+                }
+                if snapshot.runs.isEmpty { Text("No automated experiments started yet.").font(.caption) }
+            }
+            if !message.isEmpty { Text(message).font(.caption).textSelection(.enabled) }
+        }
+        .task { if snapshot == nil { request("state", body: EmptyWorkspaceRequest()) } }
+        .onChange(of: store.aiEndpoint) { _, _ in clearConnection() }
+        .onChange(of: store.aiToken) { _, _ in clearConnection() }
+        .confirmationDialog("Start fixed paper experiments?", isPresented: $showStart, titleVisibility: .visible) {
+            Button("Start automated paper only") {
+                guard let binding = startBinding, binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else {
+                    message = "Connection changed; refresh and review the protocol again."; return
+                }
+                request("start", body: AutomatedPaperStart(client_id: requestID))
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Trend, breakout and mean reversion each receive $10,000 of simulated cash. Entry budget is capped at 25% of prior equity and $2,500, with 10 bps costs per side. A 10% observed drawdown or bad/missed data stops the experiment. Future simulated fills run without individual confirmation. No real money or broker orders are involved.")
+        }
+    }
+    private func clearConnection() {
+        snapshot = nil; showStart = false; startBinding = nil; requestID = UUID().uuidString
+        message = "Connection changed; refresh paper strategies."
+    }
+    private func request<B: Encodable & Sendable>(_ action: String, body: B) {
+        guard !busy else { return }
+        busy = true; message = ""
+        let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+        Task {
+            defer { busy = false }
+            do {
+                let result: AutomatedPaperSnapshot = try await WorkspaceAPI.request("v1/paper/automation/" + action,
+                    body: body, endpoint: binding.endpoint, token: binding.token)
+                guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+                guard result.mode == "automated_paper", result.version == "prospective-paper-v1" else {
+                    throw WorkspaceError(message: "Unexpected paper strategy response; update the app/gateway together.")
+                }
+                snapshot = result
+                if action == "start" { requestID = UUID().uuidString }
+            } catch {
+                if binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription }
+            }
         }
     }
 }

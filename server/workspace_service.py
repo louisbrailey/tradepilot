@@ -9,12 +9,15 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from research import Massive, validated_daily_bars
 from paper_service import PaperService
+from paper_automation import AutomationService
 from coinbase_service import CoinbaseAdapter, CoinbaseError
 from strategies import compare_strategies
 from webull_service import BrokerError
 
-WORKSPACE_ROUTES = ("/v1/paper/state", "/v1/paper/review", "/v1/paper/confirm", "/v1/paper/note", "/v1/paper/mark", "/v1/coinbase/state", "/v1/strategies")
+AUTOMATION_ROUTES = ("/v1/paper/automation/state", "/v1/paper/automation/start", "/v1/paper/automation/pause", "/v1/paper/automation/check")
+WORKSPACE_ROUTES = AUTOMATION_ROUTES + ("/v1/paper/state", "/v1/paper/review", "/v1/paper/confirm", "/v1/paper/note", "/v1/paper/mark", "/v1/coinbase/state", "/v1/strategies")
 _services = {}
+_automation_services = {}
 _lock = threading.Lock()
 
 
@@ -26,6 +29,16 @@ def paper():
             os.chmod(runtime, 0o700)
             _services[runtime] = PaperService(runtime / "paper.sqlite3")
         return _services[runtime]
+
+
+def automation():
+    runtime = Path(os.environ.get("TRADEPILOT_RUNTIME", "runtime")).resolve()
+    with _lock:
+        if runtime not in _automation_services:
+            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(runtime, 0o700)
+            _automation_services[runtime] = AutomationService(runtime / "automated-paper.sqlite3")
+        return _automation_services[runtime]
 
 
 def ticker(value):
@@ -57,6 +70,17 @@ def paper_quote(symbol):
 def workspace_request(path, payload):
     if not isinstance(payload, dict):
         raise BrokerError("Expected an object")
+    if path in AUTOMATION_ROUTES:
+        try:
+            if path.endswith(("/state", "/check")) and payload:
+                raise ValueError("Expected an empty scheduler request")
+            service = automation()
+            if path.endswith("/state"): return service.state()
+            if path.endswith("/start"): return service.start(payload)
+            if path.endswith("/pause"): return service.pause(payload)
+            return service.tick()
+        except ValueError as error:
+            raise BrokerError(str(error)) from None
     if path in ("/v1/paper/state", "/v1/paper/mark", "/v1/coinbase/state") and payload:
         raise BrokerError("Expected an empty request")
     if path == "/v1/coinbase/state":

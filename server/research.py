@@ -59,7 +59,7 @@ class Massive:
                 return {"available": False, "reason": "Provider denied this dataset"}
             return {"available": True, "results": result.get("results", []),
                     "partial_page": bool(result.get("next_url")), "request_id": result.get("request_id"),
-                    "adjusted": result.get("adjusted")}
+                    "adjusted": result.get("adjusted"), "ticker": result.get("ticker")}
         except HTTPError as error:
             error.close()
             return {"available": False, "reason": "Provider HTTP " + str(error.code)}

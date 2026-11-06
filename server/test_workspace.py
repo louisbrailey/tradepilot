@@ -62,6 +62,24 @@ class WorkspaceTests(unittest.TestCase):
                     workspace.workspace_request(route, {'path': '/private/file'})
             ledger.assert_not_called(); coinbase.assert_not_called()
 
+    def test_automation_routes_use_separate_service_and_validate_payloads(self):
+        from paper_automation import AutomationService
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import uuid
+        with tempfile.TemporaryDirectory() as folder:
+            service = AutomationService(Path(folder)/'automation.sqlite3', clock=lambda: datetime(2026,11,5,21,tzinfo=ZoneInfo('America/New_York')).timestamp())
+            with patch.object(workspace, 'automation', return_value=service), patch.object(workspace, 'paper') as manual, patch.object(server, 'broker') as broker:
+                for suffix in ('state','check'):
+                    with self.assertRaises(BrokerError): workspace.workspace_request('/v1/paper/automation/'+suffix, {'price':'1'})
+                with self.assertRaises(BrokerError): workspace.workspace_request('/v1/paper/automation/start', {'approved':False})
+                result = workspace.workspace_request('/v1/paper/automation/start', {'client_id':str(uuid.uuid4()),'approved':True})
+                self.assertEqual(result['mode'], 'automated_paper')
+                self.assertEqual(len(result['runs']),3)
+                stopped = workspace.workspace_request('/v1/paper/automation/pause', {'id':'all'})
+                self.assertTrue(all(r['status']=='paused' for r in stopped['runs']))
+                manual.assert_not_called(); broker.assert_not_called()
+
     def test_paper_review_cannot_supply_price_and_quote_is_server_owned(self):
         request = dict(symbol='AAPL', side='buy', quantity='2', client_id='request-1234')
         quote = dict(symbol='AAPL', price='100', as_of=time.time()-3600, source='test quote', delayed=True)

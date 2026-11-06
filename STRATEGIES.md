@@ -15,3 +15,7 @@ python3 scripts/compare-strategies.py --cache-dir '/Users/louisbrailey/Documents
 The command reads owner-only cached records with verified raw hashes, and writes derived metrics, source timestamps/hashes and implementation hashes. It does not alter cache or observation records, publish raw licensed bars or submit orders. Current evidence is in [the comparison report](reports/strategy-comparison-2026-09-23/REPORT.md).
 
 This is daily equity/ETF price research. Dividend optimization needs total-return/corporate-action data; shorts need borrow and financing; options need historical chains and realistic fills; FX, crypto and intraday approaches need their own data and execution assumptions. Those strategies are not implemented by relabeling these results. No future-profitability or deployment recommendation follows from this comparison.
+
+## Forward-recorded paper operation
+
+The same three fixed signal rules now have a separate [automated prospective paper runner](AUTOMATED-PAPER.md). Its entry sizing, observation schedule, cost and stop protocol differ from the full-allocation historical comparison and are frozen before activation. Starting those experiments is not selection of a historical winner or live-strategy promotion.

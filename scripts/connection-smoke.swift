@@ -172,3 +172,10 @@ if CommandLine.arguments.count > 1 {
     precondition(strategies.strategies.count == 3 && strategies.evidence == "exploratory_previously_observed")
     print("PASS native paper review/receipt arithmetic, strict decimals, persisted journal and strategy API decoding")
 }
+
+let automationData = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("automation.json"))
+let automationState = try JSONDecoder().decode(AutomatedPaperSnapshot.self, from: automationData)
+precondition(automationState.mode == "automated_paper" && automationState.runs.count == 3)
+precondition(automationState.runs.allSatisfy { $0.active && $0.cash == "10000" && $0.observations == 0 && $0.pending == nil })
+precondition(automationState.runs.allSatisfy { $0.protocol.cost_bps == 10 && $0.symbol == "SPY" && !$0.events.isEmpty })
+print("PASS automated paper protocol, independent accounts and event decoding")

@@ -6,7 +6,8 @@ See [LATEST-STATUS.md](LATEST-STATUS.md) for dated verification and [tasks/todo.
 
 - Physical iPhone installation with a certificate-pinned private Mac gateway.
 - Webull account holdings/balances and Coinbase View-only asset balances.
-- Explicitly confirmed paper trading with a durable ledger and journal.
+- Explicitly confirmed manual paper trading with a durable ledger and journal.
+- Three fixed automated SPY paper experiments with a separate scheduler, portfolios and data/risk stops; see [AUTOMATED-PAPER.md](AUTOMATED-PAPER.md).
 - Local AI, Massive research, fixed strategy comparisons and Kronos historical replay.
 - Sample portfolio and demo assistant kept visibly separate from real account data.
 
@@ -24,7 +25,7 @@ These are separate features or external integrations, not completed by installin
 | --- | --- |
 | Fidelity account data | Supported provider integration, entitlement and separately approved account connection. No retail trading endpoint is invented. |
 | Always-on remote access | Hosting/network design and a reviewed deployment; the current gateway is local to the Mac. |
-| Automated prospective paper strategies | Explicit strategy/schedule, independent data-quality gates and prospective evaluation. The existing paper account is manually confirmed. |
+| Prospective evaluation and broader automation | The three fixed SPY paper protocols are implemented and started. Future-session settlements and sufficient prospective observations still need to occur. Custom universes, schedules, notifications and performance promotion are not implemented. |
 | Additional strategy families | Appropriate dividend, FX, intraday or options data plus preregistered evaluation; no tuning observed holdouts into a success claim. |
 | Live crypto/options/short execution | Product-specific contracts, provider entitlement, risk controls and independently verified execution evidence before any enablement. |
 | App Store/TestFlight distribution | Distribution signing and the applicable Apple account/review requirements. Current installation is a signed development build. |

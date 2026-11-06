@@ -18,3 +18,12 @@ with tempfile.TemporaryDirectory() as directory:
         (out/(name+'.json')).write_text(json.dumps(value))
 bars=[dict(t=1600000000000+i*86400000,o=100+i/10,h=102+i/10,l=99+i/10,c=101+i/10) for i in range(180)]
 (out/'strategies.json').write_text(json.dumps({**compare_strategies(bars),'ticker':'AAPL'}))
+
+from paper_automation import AutomationService
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import uuid
+with tempfile.TemporaryDirectory() as directory:
+    service = AutomationService(Path(directory)/'automation.sqlite3', clock=lambda: datetime(2026,11,5,21,tzinfo=ZoneInfo('America/New_York')).timestamp())
+    state = service.start({'client_id': str(uuid.uuid4()), 'approved': True})
+    (out/'automation.json').write_text(json.dumps(state))

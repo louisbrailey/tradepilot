@@ -27,3 +27,7 @@ This creates forward-recorded paper observations as the app is used. It does not
 - `ValueError` denotes invalid requests or rejected simulation approval.
 
 The focused suite in `server/test_paper.py` exercises accounting, persistence, concurrent review/approval, concurrent budget limits, expiry, malformed numbers, price freshness, immutable reviews, fractional exits, atomic marking, quote regression, stale reviews, drawdown, and notes. All data is synthetic; no real accounts or credentials are used.
+
+## Separate automated experiments
+
+The account above remains manually confirmed. [Automated paper strategies](AUTOMATED-PAPER.md) use a separate database and separate virtual capital, with protocol-level start approval and future simulated fills. Neither account can submit broker orders.

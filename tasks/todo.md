@@ -13,4 +13,7 @@
 - [x] Real Coinbase account connectivity: View-only provider permissions, authenticated pinned-TLS gateway reads and physical-phone balances verified November 5. See reports/coinbase-setup-2026-11-05.md.
 - [x] Version 0.2.0 account screens, connection status and demo separation rebuilt, installed and checked on the physical iPhone. See reports/release-0.2.0-2026-11-05.md.
 
-Follow-on product scope retained explicitly: Fidelity supported data access, live crypto/options/short execution, dividend/FX/intraday strategy implementations with appropriate data, automated prospective strategy operation, and remote always-on infrastructure. Do not mark these complete from exploratory research or a manual paper ledger.
+- [x] Automated paper version 1: three frozen SPY protocols, independent simulated accounts, background scheduling, data/drawdown stops, durable evidence, phone controls and first forward observation verified November 5.
+- [ ] Observe the first future-session settlement and accumulate prospective strategy evidence; do not infer this from synthetic tests.
+
+Follow-on product scope retained explicitly: Fidelity supported data access, live crypto/options/short execution, dividend/FX/intraday strategy implementations with appropriate data, broader/custom strategy automation, prospective evaluation, and remote always-on infrastructure. Do not mark these complete from exploratory research or a manual paper ledger.

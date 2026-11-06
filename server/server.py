@@ -18,7 +18,8 @@ from pathlib import Path
 from access_routes import ACCESS_ROUTES, access_request
 from webull_service import BrokerError, WebullAdapter, WebullService
 from evaluation import load_evaluation
-from workspace_service import workspace_request, WORKSPACE_ROUTES
+from workspace_service import workspace_request, WORKSPACE_ROUTES, automation
+from paper_automation import start_worker
 from network_watch import watch_interface
 from kronos_service import request as kronos_request, KronosError
 
@@ -499,4 +500,10 @@ if __name__ == "__main__":
     if args.tls_cert and args.tls_key:
         enable_tls(service, args.tls_cert, args.tls_key)
     print("TradePilot private gateway started; Webull execution requires a separate approved review.")
-    raise SystemExit(serve_with_network_watch(service, args.bind, args.interface))
+    stopped, worker = start_worker(automation())
+    try:
+        exit_code = serve_with_network_watch(service, args.bind, args.interface)
+    finally:
+        stopped.set()
+        worker.join(timeout=40)
+    raise SystemExit(exit_code)

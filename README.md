@@ -2,12 +2,13 @@
 
 A native iPhone assistant for reviewing portfolios, preparing explicitly confirmed trades, and keeping research and a trade journal together.
 
-**Current verified status:** version 0.2.0 is installed on the physical iPhone with verified Webull and Coinbase read access. Real account screens are separate from sample portfolios and paper trading. Local AI, Massive research, strategy comparison and Kronos replay have prior physical-phone verification. See [latest status](LATEST-STATUS.md), [0.2.0 release checks](reports/release-0.2.0-2026-11-05.md) and [research/paper checks](reports/phone-verification-2026-11-04.md). Live trading and transfers are disabled.
+**Current verified status:** version 0.3.0 is installed on the physical iPhone with verified Webull and Coinbase read access. Real account screens are separate from sample portfolios and paper trading. Three fixed automated SPY paper experiments are running; see [the protocol](AUTOMATED-PAPER.md). Local AI, Massive research, strategy comparison and Kronos replay have prior physical-phone verification. See [latest status](LATEST-STATUS.md), [0.3.0 automation checks](reports/automated-paper-2026-11-05.md) and [research/paper checks](reports/phone-verification-2026-11-04.md). Live trading and transfers are disabled.
 
 Kronos is available under **Research → Kronos forecasting lab** for local historical forecasts and baseline comparisons. See [Kronos setup and verification](KRONOS.md).
 
 ## Included
 
+- Automated prospective paper strategies with a private scheduler, separate portfolios and explicit stop/data gates.
 - SwiftUI account overview, Webull/Coinbase balances, paper trading, demo portfolio, assistant and research/journal screens.
 - Local Ollama inference or optional OpenAI, strict structured proposals, independent order validation, and separate confirmation.
 - Webull long-stock DAY market/limit order adapter with durable no-duplicate submission and execution evidence.
