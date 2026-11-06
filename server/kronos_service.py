@@ -5,13 +5,13 @@ import math
 import os
 import re
 import subprocess
-import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from research import Massive, validated_daily_bars
+from inference_guard import local_inference_lock
 
-_LOCK = threading.Lock()
+_LOCK = local_inference_lock
 LOOKBACK = 128
 MODEL = 'NeoQuasar/Kronos-small'
 NOTICE = ('Historical replay, not a live forecast or trading strategy. Model training overlap is not verified. '
@@ -80,7 +80,7 @@ def infer(history, dates, samples):
     except subprocess.TimeoutExpired:
         raise KronosError('Local model timed out. Try the 5-session horizon.') from None
     except Exception:
-        raise KronosError('Local inference failed. Check the cached Kronos-small model and Python environment on the Mac.') from None
+        raise KronosError('Local inference failed. Check the cached Kronos-small model and Python environment on the gateway.') from None
 
 
 def replay(payload):
@@ -92,7 +92,7 @@ def replay(payload):
     if type(horizon) is not int or horizon not in (5, 20):
         raise ValueError('Invalid horizon')
     if not _LOCK.acquire(blocking=False):
-        raise KronosError('Kronos is already running a forecast. Wait for it to finish.')
+        raise KronosError('Local AI or Kronos is already running. Wait for it to finish.')
     try:
         bars = fetch_bars(symbol)
         history, actual = bars[-LOOKBACK-horizon:-horizon], bars[-horizon:]

@@ -1,0 +1,15 @@
+[Unit]
+Description=TradePilot consistent private SQLite backups
+
+[Service]
+Type=oneshot
+User=tradepilot
+Group=tradepilot
+Environment=HOME=/var/lib/tradepilot
+UMask=0077
+ExecStart=/opt/tradepilot/venv/bin/python /opt/tradepilot/app/scripts/remote-gateway.py --backup
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tradepilot

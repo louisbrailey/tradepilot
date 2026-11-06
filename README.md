@@ -13,7 +13,7 @@ Kronos is available under **Research → Kronos forecasting lab** for local hist
 - Local Ollama inference or optional OpenAI, strict structured proposals, independent order validation, and separate confirmation.
 - Webull long-stock DAY market/limit order adapter with durable no-duplicate submission and execution evidence.
 - Real Massive/Benzinga research and reproducible multi-stage historical evaluation with results in the app.
-- Private TLS pairing, Keychain access token, and a per-user Mac gateway.
+- Private TLS pairing, Keychain access token, and a per-user Mac gateway. [Always-on remote hosting](REMOTE-SETUP.md) is prepared but not yet deployed.
 
 See [confirmed broker access, supported scope and safety controls](BROKER-ACCESS.md) for the Coinbase action screen and Webull cancellation flow. The matching gateway routes are deployed. Read-only access has been verified; this does not qualify or enable live submissions.
 

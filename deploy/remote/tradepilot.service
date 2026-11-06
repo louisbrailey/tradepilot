@@ -1,0 +1,34 @@
+[Unit]
+Description=TradePilot private gateway and paper scheduler
+After=network-online.target tailscaled.service ollama.service
+Wants=network-online.target tailscaled.service ollama.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=tradepilot
+Group=tradepilot
+Environment=HOME=/var/lib/tradepilot
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/tradepilot/app
+ExecStart=/opt/tradepilot/venv/bin/python /opt/tradepilot/app/scripts/remote-gateway.py
+Restart=on-failure
+RestartSec=15
+UMask=0077
+StateDirectory=tradepilot
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tradepilot
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LimitNOFILE=4096
+TasksMax=128
+MemoryHigh=2300M
+MemoryMax=3G
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

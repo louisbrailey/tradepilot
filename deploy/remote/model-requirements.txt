@@ -1,0 +1,9 @@
+# Versions from the Mac Kronos runtime. Linux wheel availability checked;
+# actual Linux model inference remains a deployment acceptance gate.
+numpy==2.5.3
+pandas==2.2.2
+torch==2.14.0
+einops==0.8.1
+huggingface-hub==0.33.1
+safetensors==0.6.2
+tqdm==4.67.1

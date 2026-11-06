@@ -1,3 +1,9 @@
+# November 5, 2026 — remote hosting prepared; Mac still active
+
+Prepared an Ubuntu 24.04 deployment for the private Tailscale gateway, paper scheduler, smaller local Qwen3.5:4b assistant and the existing pinned Kronos models. Proposed hosting is a DigitalOcean 4-vCPU/8-GB server at $48/month plus $9.60/month for weekly backups, before tax. No account/server has been created, no charge incurred and no private state transferred. The current Mac deployment and phone pairing remain unchanged.
+
+Added private-node/pairing preflight, read-only broker enforcement, restart fencing for migration, shared AI/Kronos request serialization, service resource limits, consistent per-database SQLite backups, a staged installer and a single-writer cutover/recovery runbook. Full checks pass: 13 core, 222 backend (one optional signing skip), 50 script tests and Swift smoke/typechecks. Nine new remote tests and systemd unit validation also pass in an isolated Ubuntu 24.04 container. Linux model installation, actual VPS performance, migration, reboot recovery and cellular iPhone verification remain pending; local tests do not prove them. See [hosting plan and deployment steps](REMOTE-SETUP.md).
+
 # November 5, 2026 — automated paper strategies started (0.3.0)
 
 Version 0.3.0 (build 3) adds three fixed prospective SPY experiments with separate $10,000 simulated accounts, scheduled by the Mac gateway after 20:15 Eastern on market sessions. Immutable protocol/code hashes, precommitted next-session intentions, costed decimal accounting, stop controls, drawdown/data holds and restart/concurrency protection are implemented. Manual paper and real broker accounts remain separate; no broker writes are enabled.

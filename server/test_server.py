@@ -8,6 +8,31 @@ import server
 
 
 class GatewayTests(unittest.TestCase):
+    def test_migration_fence_fails_closed_and_default_stays_compatible(self):
+        with patch.dict(server.os.environ, {}, clear=True):
+            server.require_gateway_enabled()
+            self.assertEqual(server.local_ai_keep_alive(), '5m')
+        for value in ('enabled', '', 'false', 'typo'):
+            with patch.dict(server.os.environ, {'GATEWAY_DISABLED': value}), self.assertRaises(RuntimeError):
+                server.require_gateway_enabled()
+
+    def test_remote_model_memory_setting_is_bounded(self):
+        with patch.dict(server.os.environ, {'LOCAL_AI_KEEP_ALIVE': '0'}):
+            self.assertEqual(server.local_ai_keep_alive(), '0')
+        with patch.dict(server.os.environ, {'LOCAL_AI_KEEP_ALIVE': '-1'}), self.assertRaises(RuntimeError):
+            server.local_ai_keep_alive()
+
+    def test_ai_and_kronos_share_the_same_exclusive_memory_lock(self):
+        import kronos_service
+        self.assertIs(server._local_ai_lock, kronos_service._LOCK)
+        with kronos_service._LOCK, patch.object(server, 'local_model_completion') as completion:
+            with self.assertRaisesRegex(RuntimeError, 'already processing'):
+                server.ollama_reply('fixture', {}, '')
+            completion.assert_not_called()
+        with patch.object(server, 'local_model_completion', side_effect=RuntimeError('fixture')):
+            with self.assertRaises(RuntimeError): server.ollama_reply('fixture', {}, '')
+        self.assertFalse(kronos_service._LOCK.locked())
+
     def test_setup_configuration_is_not_a_provider_check_and_contains_no_secrets(self):
         with patch.dict(server.os.environ, {"OPENAI_API_KEY": "secret-openai", "OPENAI_MODEL": "test-model",
                 "WEBULL_APP_KEY": "secret-webull", "WEBULL_APP_SECRET": "secret-other",

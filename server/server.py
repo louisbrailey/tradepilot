@@ -20,16 +20,17 @@ from webull_service import BrokerError, WebullAdapter, WebullService
 from evaluation import load_evaluation
 from workspace_service import workspace_request, WORKSPACE_ROUTES, automation
 from paper_automation import start_worker
+from inference_guard import local_inference_lock
 from network_watch import watch_interface
 from kronos_service import request as kronos_request, KronosError
 
 _broker = None
 _broker_lock = threading.Lock()
-_local_ai_lock = threading.Lock()
+_local_ai_lock = local_inference_lock
 
 
 def load_private_config(path):
-    allowed = {"KRONOS_HOME", "KRONOS_PYTHON", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "OLLAMA_LOOPBACK_HOST", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY", "COINBASE_IPV4_ONLY", "COINBASE_LIVE_TRADING", "COINBASE_TRANSFERS", "BROKER_KILL_SWITCH"}
+    allowed = {"GATEWAY_DISABLED", "LOCAL_AI_KEEP_ALIVE", "KRONOS_HOME", "KRONOS_PYTHON", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "OLLAMA_LOOPBACK_HOST", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY", "COINBASE_IPV4_ONLY", "COINBASE_LIVE_TRADING", "COINBASE_TRANSFERS", "BROKER_KILL_SWITCH"}
     config = Path(path)
     if config.stat().st_mode & 0o077:
         raise ValueError("Private config must have permissions 600")
@@ -234,6 +235,18 @@ def ollama_reply(model, context, instructions):
         _local_ai_lock.release()
 
 
+def require_gateway_enabled():
+    if os.environ.get("GATEWAY_DISABLED", "disabled") != "disabled":
+        raise RuntimeError("This gateway is disabled for migration; do not restart both copies")
+
+
+def local_ai_keep_alive():
+    value = os.environ.get("LOCAL_AI_KEEP_ALIVE", "5m")
+    if value not in ("0", "5m"):
+        raise RuntimeError("LOCAL_AI_KEEP_ALIVE must be 0 or 5m")
+    return value
+
+
 def local_model_completion(model, context, instructions):
     # Localhost Ollama can also proxy cloud models. Inspect the selected model
     # before supplying any prompt/portfolio context; never download a model or
@@ -249,7 +262,7 @@ def local_model_completion(model, context, instructions):
                 {"role": "system", "content": instructions + "\nReturn only JSON matching this schema: " + json.dumps(SCHEMA)},
                 {"role": "user", "content": json.dumps(context)}],
             "options": {"temperature": 0, "num_predict": 1600, "num_ctx": 8192},
-            "truncate": False, "shift": False, "keep_alive": "5m"}
+            "truncate": False, "shift": False, "keep_alive": local_ai_keep_alive()}
     result = local_ollama_request("/api/chat", body, timeout=90)
     if (result.get("done") is not True or result.get("done_reason") != "stop"
             or result.get("remote_model") or result.get("remote_host")
@@ -487,6 +500,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.config:
         load_private_config(args.config)
+    require_gateway_enabled()
     if args.market_env:
         load_market_env(args.market_env)
     if len(os.environ.get("APP_ACCESS_TOKEN", "")) < 32:

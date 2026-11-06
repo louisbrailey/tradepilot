@@ -38,17 +38,25 @@ def certificate_material(address, hostname: str | None) -> tuple[bytes, bytes, b
             cert.public_bytes(serialization.Encoding.PEM), cert.public_bytes(serialization.Encoding.DER))
 
 
-def create_pairing(private_dir: str, address: str, hostname: str | None = None) -> None:
+def create_pairing(private_dir: str, address: str, hostname: str | None = None, network: str = "lan") -> None:
     try:
         ip = ipaddress.ip_address(address)
     except ValueError:
         raise SystemExit("Use a literal private local-network address.") from None
-    if ip.is_unspecified or ip.is_loopback or ip.is_link_local or ip.is_multicast or not ip.is_private:
-        raise SystemExit("Use a specific private local-network address.")
-    if hostname:
-        if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.local", hostname, re.IGNORECASE):
-            raise SystemExit("Use a single-label .local hostname.")
-        hostname = hostname.lower()
+    if network == "tailscale":
+        if ip not in ipaddress.ip_network("100.64.0.0/10"):
+            raise SystemExit("Use the server's assigned Tailscale IPv4 address.")
+        if not hostname or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.ts\.net", hostname):
+            raise SystemExit("Use the server's full Tailscale MagicDNS hostname.")
+    elif network == "lan":
+        if ip.is_unspecified or ip.is_loopback or ip.is_link_local or ip.is_multicast or not ip.is_private:
+            raise SystemExit("Use a specific private local-network address.")
+        if hostname:
+            if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.local", hostname, re.IGNORECASE):
+                raise SystemExit("Use a single-label .local hostname.")
+            hostname = hostname.lower()
+    else:
+        raise SystemExit("Use lan or tailscale pairing mode.")
     root = Path(private_dir).expanduser()
     if not root.is_absolute():
         raise SystemExit("Private directory must be an absolute path.")
@@ -106,8 +114,9 @@ def main() -> None:
     parser.add_argument("--private-dir", required=True)
     parser.add_argument("--address", required=True)
     parser.add_argument("--hostname", help="Optional stable mDNS hostname, such as My-Mac.local")
+    parser.add_argument("--network", choices=("lan", "tailscale"), default="lan")
     args = parser.parse_args()
-    create_pairing(args.private_dir, args.address, args.hostname)
+    create_pairing(args.private_dir, args.address, args.hostname, args.network)
 
 
 if __name__ == "__main__":

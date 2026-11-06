@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily TradePilot private ledger backup
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
