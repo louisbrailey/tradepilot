@@ -238,6 +238,12 @@ struct PaperTradingView: View {
 
 struct CoinbaseAccount: Decodable, Sendable, Identifiable {
     let id: String; let currency: String; let name: String; let available: String; let hold: String; let total: String
+    var hasZeroBalance: Bool {
+        [available, hold, total].allSatisfy { value in
+            guard let match = value.range(of: #"^0+(?:\.0+)?$"#, options: .regularExpression) else { return false }
+            return match.upperBound == value.endIndex
+        }
+    }
 }
 struct CoinbaseSnapshot: Decodable, Sendable {
     let broker: String; let read_only: Bool; let as_of: Double; let accounts: [CoinbaseAccount]
@@ -247,24 +253,31 @@ struct CoinbaseView: View {
     @State private var snapshot: CoinbaseSnapshot?
     @State private var message = ""
     @State private var busy = false
+    @State private var showEmptyAccounts = false
+    private var visibleAccounts: [CoinbaseAccount] {
+        (snapshot?.accounts ?? []).filter { showEmptyAccounts || !$0.hasZeroBalance }
+            .sorted { $0.currency == $1.currency ? $0.id < $1.id : $0.currency < $1.currency }
+    }
     var body: some View {
         Screen(title: "Coinbase", isDemo: false) {
-            NavigationLink("Trading and internal transfers") { CoinbaseActionsView() }
+            NavigationLink("Access and order history") { CoinbaseActionsView() }
             Text("ACCOUNT BALANCES").font(.caption.bold()).foregroundStyle(Palette.mint)
-            Text("Balances come from Coinbase Advanced Trade through your private gateway. Configure a Coinbase ECDSA API key on the server; never paste its private key into this app. Open Trading and internal transfers for separately reviewed actions; writes default to disabled.").font(.subheadline).foregroundStyle(Palette.muted)
+            Text("View asset balances through your private gateway. Amounts are in each asset’s own units, not a combined dollar value.").font(.subheadline).foregroundStyle(Palette.muted)
             Button(busy ? "Loading…" : "Load Coinbase accounts") { refresh() }.buttonStyle(MintButton()).disabled(busy)
             if let snapshot {
                 Text("Updated \(workspaceDate(snapshot.as_of))").font(.caption)
+                Toggle("Show zero balances", isOn: $showEmptyAccounts).tint(Palette.mint)
+                Text("\(visibleAccounts.count) of \(snapshot.accounts.count) asset accounts").font(.caption).foregroundStyle(Palette.muted)
                 if snapshot.accounts.isEmpty { Text("No accounts returned by Coinbase.") }
-                ScrollView(.horizontal) {
-                    Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 14) {
-                        GridRow { Text("Asset"); Text("Available"); Text("On hold"); Text("Total") }.font(.caption.bold())
-                        ForEach(snapshot.accounts) { a in
-                            GridRow { Text(a.currency); Text(a.available); Text(a.hold); Text(a.total) }.font(.caption.monospacedDigit())
-                        }
-                    }
-                }.card()
-                Text("Amounts are in each asset's own units. They are not combined into a USD portfolio value.").font(.caption).foregroundStyle(Palette.muted)
+                else if visibleAccounts.isEmpty { Text("All returned balances are zero. Turn on Show zero balances to inspect them.").font(.subheadline) }
+                ForEach(visibleAccounts) { a in
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack { Text(a.currency).font(.headline); Spacer(); Text(a.name).font(.caption).foregroundStyle(Palette.muted) }
+                        LabeledContent("Total", value: a.total)
+                        LabeledContent("Available", value: a.available)
+                        LabeledContent("On hold", value: a.hold)
+                    }.font(.subheadline.monospacedDigit()).textSelection(.enabled).card()
+                }
             }
             Text(message).font(.caption).textSelection(.enabled)
         }
@@ -272,6 +285,7 @@ struct CoinbaseView: View {
         .onChange(of: store.aiToken) { _, _ in snapshot = nil; message = "Connection changed; reload accounts." }
     }
     private func refresh() {
+        guard !busy else { return }
         busy = true; snapshot = nil
         let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
         Task { defer { busy = false }
@@ -362,6 +376,16 @@ struct AccessCapabilities: Decodable, Sendable {
     let provider: String; let environment: String; let granted: AccessPermissions
     let trading_enabled: Bool; let cancellation_enabled: Bool; let transfers_enabled: Bool; let limitations: [String]
     let portfolios: [AccessPortfolio]
+    func permits(_ action: String, account: String) -> Bool {
+        guard provider == "coinbase", environment == "production", granted.can_view,
+              account == granted.portfolio_uuid, portfolios.contains(where: { $0.id == account && ["DEFAULT", "CONSUMER"].contains($0.type) }) else { return false }
+        switch action {
+        case "limit_order": return granted.can_trade && trading_enabled
+        case "cancel_order": return granted.can_trade && cancellation_enabled
+        case "internal_transfer": return granted.can_transfer && transfers_enabled
+        default: return false
+        }
+    }
 }
 struct AccessApproval: Encodable, Sendable {
     let id: String; let token: String; let digest: String; let approved: Bool
@@ -417,27 +441,37 @@ struct CoinbaseActionsView: View {
     private var canConfirm: Bool {
         guard let r = review, r.token != nil, r.state == "REVIEW", r.expires_at > Date().timeIntervalSince1970,
               reviewedIntent == intent, let connection = reviewedConnection,
-              connection.matches(endpoint: store.aiEndpoint, token: store.aiToken), let c = capabilities else { return false }
-        return action == "internal_transfer" ? c.transfers_enabled : (action == "cancel_order" ? c.cancellation_enabled : c.trading_enabled)
+              connection.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return false }
+        return canPrepare
     }
+    private var canPrepare: Bool { capabilities?.permits(action, account: account) == true }
     var body: some View {
-        Screen(title: "Coinbase actions", isDemo: false) {
-            Text("PRODUCTION · MANUAL CONFIRMATION").font(.caption.bold())
-            Text("Each submission needs a fresh saved review. Broker writes and transfers have separate server switches. Unknown results block this account across apps until resolved.").font(.caption)
+        Screen(title: "Coinbase access", isDemo: false) {
+            Text("ACCOUNT ACCESS").font(.caption.bold()).foregroundStyle(Palette.mint)
+            Text("Check provider permissions and view orders for the selected portfolio. Any permitted action requires a separate review and confirmation.").font(.caption)
             Button("Refresh permissions and portfolios") { load() }.disabled(busy)
             if let c = capabilities {
                 Text("Provider permissions — view: \(c.granted.can_view ? "yes" : "no"), trade: \(c.granted.can_trade ? "yes" : "no"), transfer: \(c.granted.can_transfer ? "yes" : "no")")
                 Text("Server trading: \(c.trading_enabled ? "enabled" : "disabled") · transfers: \(c.transfers_enabled ? "enabled" : "disabled")")
-                ForEach(c.limitations, id: \.self) { Text($0).font(.caption).foregroundStyle(Palette.muted) }
+                DisclosureGroup("Supported actions and limits") {
+                    ForEach(c.limitations, id: \.self) { Text($0).font(.caption).foregroundStyle(Palette.muted) }
+                }
                 Picker("Source portfolio", selection: $account) {
                     Text("Select portfolio").tag("")
-                    ForEach(c.portfolios) { Text($0.id).tag($0.id) }
+                    ForEach(c.portfolios.filter { $0.id == c.granted.portfolio_uuid }) { Text("Authorized portfolio · \($0.type.lowercased())").tag($0.id) }
                 }
+                Button("Load account orders") { loadOrders() }.disabled(busy || account.isEmpty || !c.granted.can_view)
+                ForEach(orders) { order in
+                    Text("\(order.product_id) · \(order.side) · \(order.status)").font(.caption)
+                }
+                DisclosureGroup("Trade controls") {
+                VStack(alignment: .leading, spacing: 14) {
                 Picker("Action", selection: $action) {
                     Text("Spot limit order · GTC").tag("limit_order")
                     Text("Cancel order").tag("cancel_order")
                     Text("Internal portfolio transfer").tag("internal_transfer")
                 }
+                if !canPrepare { Text("This action is unavailable for the selected portfolio. Both provider permission and the gateway control must allow it.").font(.caption).foregroundStyle(.orange) }
                 if action == "limit_order" {
                     TextField("Exact product, e.g. BTC-USD", text: $product)
                     Picker("Side", selection: $side) { Text("Buy").tag("BUY"); Text("Sell").tag("SELL") }
@@ -454,7 +488,6 @@ struct CoinbaseActionsView: View {
                     Text("Actual fees and debit may exceed these pre-send ceilings. These are admission checks, not provider guarantees. Review and explicitly opt in to estimated fees.").font(.caption)
                     Text("GTC spot limit only. Commission is estimated and rechecked before submission; Coinbase provides no hard fee ceiling. No leverage or short selling.").font(.caption)
                 } else if action == "cancel_order" {
-                    Button("Load account orders") { loadOrders() }.disabled(busy)
                     TextField("Exact broker order ID", text: $orderID)
                     ForEach(orders) { order in
                         Button("\(order.product_id) \(order.side) · \(order.status) · \(order.order_id)") { orderID = order.order_id }
@@ -468,7 +501,9 @@ struct CoinbaseActionsView: View {
                     TextField("Asset amount", text: $amount)
                     Text("Internal Coinbase portfolio movement only. This does not withdraw crypto to an address or transfer money to a bank. This API has no network or fee parameter. A successful response confirms the exact saved request; balances are not independently measured. An uncertain result blocks both portfolios and cannot be retried automatically.").font(.caption)
                 }
-                Button("Prepare saved review") { prepare() }.disabled(busy || account.isEmpty)
+                Button("Prepare saved review") { prepare() }.disabled(busy || !canPrepare)
+                }.padding(.top, 12)
+                }
             }
             if let r = review {
                 Text(r.summary).font(.caption.monospaced()).textSelection(.enabled)
@@ -489,19 +524,26 @@ struct CoinbaseActionsView: View {
             Button("Keep reviewing", role: .cancel) {}
         } message: { Text("This can affect real funds. Only the saved terms displayed above will be submitted.") }
     }
-    private func clearConnection() { capabilities = nil; review = nil; reviewedIntent = nil; orders = []; account = "" }
+    private func clearConnection() {
+        capabilities = nil; review = nil; reviewedIntent = nil; reviewedConnection = nil
+        orders = []; account = ""; showApproval = false; message = "Connection changed; refresh account access."
+    }
     private func load() {
+        guard !busy else { return }
         let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
         busy = true; review = nil
         Task { defer { busy = false }
             do {
                 let c: AccessCapabilities = try await WorkspaceAPI.request("v1/coinbase/capabilities", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
                 guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), c.provider == "coinbase", c.environment == "production" else { return }
-                capabilities = c; message = "Permissions verified from provider metadata. No transaction has been tested."
+                capabilities = c
+                account = c.granted.can_view && c.portfolios.contains(where: { $0.id == c.granted.portfolio_uuid }) ? c.granted.portfolio_uuid : ""
+                orders = []; message = "Permissions checked. No transaction was submitted."
             } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
         }
     }
     private func prepare() {
+        guard !busy, canPrepare else { return }
         clientID = UUID().uuidString
         let p = intent, b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
         busy = true; review = nil
@@ -537,13 +579,14 @@ struct CoinbaseActionsView: View {
         }
     }
     private func loadOrders() {
+        guard !busy, !account.isEmpty, capabilities?.granted.can_view == true else { return }
         let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), selected = account
         busy = true
         Task { defer { busy = false }
             do {
                 let r: AccessOrders = try await WorkspaceAPI.request("v1/coinbase/orders", body: ["account_id": selected], endpoint: b.endpoint, token: b.token)
                 guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), selected == account else { return }
-                orders = r.orders
+                orders = r.orders; message = r.orders.isEmpty ? "No orders returned for this portfolio." : "Loaded \(r.orders.count) orders."
             } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
         }
     }

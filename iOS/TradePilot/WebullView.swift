@@ -11,6 +11,25 @@ struct BrokerSnapshot: Decodable {
     let environment: String; let accounts: [BrokerAccount]; let positions: [BrokerPosition]
     let balance: String; let as_of: Double
 }
+struct BrokerBalanceLine: Identifiable {
+    let id: String; let title: String; let value: String
+}
+enum BrokerBalanceSummary {
+    static func lines(_ json: String) -> [BrokerBalanceLine] {
+        guard let data = json.data(using: .utf8),
+              let values = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let currency = values["total_asset_currency"] as? String,
+              currency.count == 3, currency.allSatisfy({ $0.isASCII && $0.isUppercase }) else { return [] }
+        let fields = [("total_net_liquidation_value", "Net liquidation value"),
+                      ("total_market_value", "Market value"), ("total_cash_balance", "Cash balance"),
+                      ("total_unrealized_profit_loss", "Unrealized gain / loss"),
+                      ("total_day_profit_loss", "Day gain / loss")]
+        return fields.compactMap { key, title in
+            guard let value = values[key] as? String, PaperValidation.decimal(value) != nil else { return nil }
+            return BrokerBalanceLine(id: key, title: title, value: "\(value) \(currency)")
+        }
+    }
+}
 struct BrokerReview: Codable, Identifiable {
     var digest: String? = nil
     var economic_terms: [String: String]? = nil
@@ -322,6 +341,8 @@ struct WebullView: View {
 
     @ViewBuilder private func portfolioSection(_ snapshot: BrokerSnapshot) -> some View {
         Text("Updated \(Date(timeIntervalSince1970: snapshot.as_of).formatted())").font(.caption).foregroundStyle(Palette.muted)
+        if snapshot.positions.isEmpty { Text("No open holdings in this account.").font(.subheadline).foregroundStyle(Palette.muted) }
+        else {
         ScrollView(.horizontal) {
             Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 12) {
                 GridRow { Text("Holding"); Text("Shares"); Text("Price"); Text("Avg cost"); Text("Unrealized"); Text("Currency") }.font(.caption.bold())
@@ -330,7 +351,14 @@ struct WebullView: View {
                 }
             }
         }.card()
-        DisclosureGroup("Account balances") { Text(snapshot.balance).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }.card()
+        }
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Account balances").font(.headline)
+            let lines = BrokerBalanceSummary.lines(snapshot.balance)
+            if lines.isEmpty { Text("Summary unavailable; see the provider details below.").font(.caption).foregroundStyle(Palette.muted) }
+            ForEach(lines) { line in LabeledContent(line.title, value: line.value).font(.subheadline.monospacedDigit()) }
+            DisclosureGroup("Provider details") { Text(snapshot.balance).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
+        }.card()
     }
 
     @ViewBuilder private func executionSection(_ snapshot: BrokerSnapshot) -> some View {

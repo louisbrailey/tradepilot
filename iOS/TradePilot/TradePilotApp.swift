@@ -64,7 +64,7 @@ final class AppStore {
     var aiToken = ConnectionSettings.token
     var connectionError: String?
     var busy = false
-    var messages = [ChatMessage(user: false, text: "Your portfolio, in one conversation. Ask to see your holdings or try “sell 3 shares of AAPL”. I’ll prepare a review for you to confirm.\n\nThis prototype uses sample data and a limited command parser. Optional AI can be configured in Accounts. Open Accounts → Webull for your separately configured broker connection.")] {
+    var messages = [ChatMessage(user: false, text: "Practice with sample holdings here, or use Accounts to view your Webull and Coinbase balances. Paper trading keeps a separate, saved simulation account.\n\nTry “show my portfolio” or “sell 3 shares of AAPL” for a demo review. Enable AI in Accounts for research and questions; this conversation never submits broker orders.")] {
         didSet {
             for message in messages.dropFirst(oldValue.count) { record(message.user ? "request" : "assistant", message.text) }
         }
@@ -94,7 +94,7 @@ final class AppStore {
                 messages.append(ChatMessage(user: false, text: "Review your proposed \(intent.side.rawValue) of \(units(intent.quantity)) \(intent.symbol). Nothing is submitted until you confirm."))
             } catch { messages.append(ChatMessage(user: false, text: error.localizedDescription)) }
         case .help:
-            messages.append(ChatMessage(user: false, text: "In this demo, try “show my portfolio”, “sell 3 shares of AAPL”, or “buy 0.01 BTC”. Select an account above if you hold the same asset in several places. Conditional orders, recommendations and general questions need the future AI service; I haven’t created an order."))
+            messages.append(ChatMessage(user: false, text: "In this demo, try “show my portfolio”, “sell 3 shares of AAPL”, or “buy 0.01 BTC”. Select an account above if you hold the same asset in several places. Enable AI in Accounts for general questions and research. This parser does not support conditional orders; no order was created."))
         }
     }
 
@@ -204,9 +204,22 @@ struct DemoBanner: View {
 struct DashboardView: View {
     @Environment(AppStore.self) private var store
     var body: some View {
-        Screen(title: "TradePilot") {
+        Screen(title: "TradePilot", isDemo: false) {
+            Text("Your accounts, research and practice.").font(.title2.bold())
+            Text("Open an account to load its latest balances from your private gateway.").font(.subheadline).foregroundStyle(Palette.muted)
+            BrokerAccountLinks()
+            NavigationLink { PaperTradingView() } label: {
+                Label("Paper trading · saved simulation", systemImage: "chart.line.uptrend.xyaxis")
+            }.buttonStyle(MintButton())
+            Button { store.tab = 4 } label: { Label("Research, strategy lab & journal", systemImage: "book.closed") }
+            DisclosureGroup("Explore the demo workspace") {
+                VStack(alignment: .leading, spacing: 24) { DemoBanner(); demoContent }.padding(.top, 16)
+            }.tint(Palette.mint)
+        }
+    }
+    @ViewBuilder private var demoContent: some View {
             VStack(alignment: .leading, spacing: 15) {
-                Text("EVERY ACCOUNT. ONE VIEW.").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(2).foregroundStyle(Palette.muted)
+                Text("SAMPLE PORTFOLIO").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(2).foregroundStyle(Palette.muted)
                 Text(money(store.engine.totalValue)).font(.system(size: 43, weight: .medium, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
                 Label("\(money(store.engine.totalGain)) unrealized gain", systemImage: "arrow.up.right").font(.subheadline).foregroundStyle(Palette.mint)
                 Divider().overlay(Palette.muted.opacity(0.2))
@@ -223,7 +236,7 @@ struct DashboardView: View {
                     Spacer(); Image(systemName: "arrow.up.right")
                 }.padding(20).foregroundStyle(Palette.background).background(Palette.mint, in: RoundedRectangle(cornerRadius: 22))
             }.buttonStyle(.plain)
-            HStack { Text("Your assets").font(.title3.bold()); Spacer(); Button("View table") { store.tab = 2 }.font(.caption.bold()) }
+            HStack { Text("Sample assets").font(.title3.bold()); Spacer(); Button("View table") { store.tab = 2 }.font(.caption.bold()) }
             VStack(spacing: 20) {
                 ForEach(store.engine.holdings.filter { $0.quantity > 0 }.prefix(5)) { h in AssetRow(holding: h) }
             }.card()
@@ -240,7 +253,30 @@ struct DashboardView: View {
                     }.card()
                 }
             }
-        }
+    }
+}
+
+struct BrokerAccountLinks: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            NavigationLink { WebullView() } label: {
+                row("Webull", detail: "Brokerage holdings and balances", icon: "building.columns.fill")
+            }
+            NavigationLink { CoinbaseView() } label: {
+                row("Coinbase", detail: "Crypto balances and account access", icon: "bitcoinsign.circle")
+            }
+        }.buttonStyle(.plain)
+    }
+    private func row(_ title: String, detail: String, icon: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.title2).foregroundStyle(Palette.mint)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.headline)
+                Text(detail).font(.caption).foregroundStyle(Palette.muted)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").foregroundStyle(Palette.muted)
+        }.card()
     }
 }
 
@@ -274,12 +310,20 @@ struct AccountPicker: View {
 struct HoldingsView: View {
     @Environment(AppStore.self) private var store
     var body: some View {
-        Screen(title: "Holdings") {
+        Screen(title: "Holdings", isDemo: false) {
+            Text("Account holdings").font(.title2.bold())
+            Text("Balances stay in their account currency. Open a provider to refresh its holdings; crypto quantities are not added to a dollar total.").font(.subheadline).foregroundStyle(Palette.muted)
+            BrokerAccountLinks()
+            DisclosureGroup("Sample portfolio table") {
+              VStack(alignment: .leading, spacing: 20) {
+            DemoBanner()
             AccountPicker()
             HStack { Text("Portfolio table").font(.title3.bold()); Spacer(); Text("USD · SAMPLE").font(.caption2.monospaced()).foregroundStyle(Palette.muted) }
             PortfolioTable()
             Text("Swipe sideways to explore all columns. Allocation is based on the selected holdings, excluding cash. Cost basis uses a simplified average; tax lots and realized gains are not modeled.").font(.caption).foregroundStyle(Palette.muted)
             Button { store.tab = 1; store.send("Show my portfolio") } label: { Label("Ask about these holdings", systemImage: "sparkles").frame(maxWidth: .infinity) }.buttonStyle(MintButton())
+              }.padding(.top, 16)
+            }
         }
     }
 }
@@ -399,29 +443,61 @@ struct ReviewView: View {
 struct AccountsView: View {
     @Environment(AppStore.self) private var store
     @State private var showConnections = false
+    var body: some View {
+        @Bindable var store = store
+        Screen(title: "Accounts", isDemo: false) {
+            BrokerAccountLinks()
+            NavigationLink { PaperTradingView() } label: { Label("Paper trading account", systemImage: "chart.line.uptrend.xyaxis") }.buttonStyle(MintButton())
+            Button { showConnections = true } label: { Label("Connection guide", systemImage: "info.circle") }
+            NavigationLink { GatewaySettingsView() } label: {
+                Label("Gateway connection & AI", systemImage: "network")
+            }.buttonStyle(MintButton())
+            DisclosureGroup("Demo accounts and controls") {
+              VStack(alignment: .leading, spacing: 16) {
+                DemoBanner()
+                ForEach(store.engine.accounts) { a in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(a.name).font(.headline)
+                        Text("\(a.kind) · \(money(a.cash)) sample cash").font(.caption).foregroundStyle(Palette.muted)
+                    }
+                }
+                Text("Test a rejected order").font(.headline)
+                Toggle("Reject next demo submission", isOn: $store.rejectNext).font(.subheadline).tint(Palette.mint)
+                Text("Use this to check the failure flow. The next confirmed demo order will leave your holdings and cash unchanged.").font(.caption).foregroundStyle(Palette.muted)
+              }.padding(.top, 16)
+            }.card()
+        }
+        .sheet(isPresented: $showConnections) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        Text("Connect the accounts\nyou already use.").font(.largeTitle.bold())
+                        Text("Webull and Coinbase are available from Accounts. Their credentials stay on your private gateway; load each account to check current access.").foregroundStyle(Palette.muted)
+                        Label("Brokerage aggregation", systemImage: "building.columns").font(.headline)
+                        Text("Fidelity is not connected in TradePilot. It needs a supported account-data integration before holdings can appear here.")
+                        Text("Webull offers an individual Trading API application, subject to review and account eligibility. API access should be confirmed before deciding whether to fund it.")
+                        Link("Webull API application guide", destination: URL(string: "https://developer.webull.com/apis/docs/authentication/IndividualApplicationAPI/")!)
+                        Label("Direct exchange connections", systemImage: "bitcoinsign.circle").font(.headline)
+                        Text("Coinbase Advanced Trade supplies asset balances. Open Coinbase → Access and order history to inspect the key’s permissions. Trade and Transfer grants are separate from viewing access; server controls also gate submissions.")
+                        Text("The Mac must be awake and reachable on the same local network as your phone. External withdrawals and bank funding are unavailable here. Never enter a brokerage password in chat.").font(.subheadline).foregroundStyle(Palette.muted)
+                    }.padding(24)
+                }.background(Palette.background).navigationTitle("Live connections").phoneInlineTitle().toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showConnections = false } } }
+            }.tint(Palette.mint)
+        }
+    }
+}
+
+struct GatewaySettingsView: View {
+    @Environment(AppStore.self) private var store
     @State private var connectionMessage = ""
     @State private var setup: GatewaySetup?
     @State private var checkingSetup = false
     var body: some View {
         @Bindable var store = store
-        Screen(title: "Accounts") {
-            NavigationLink { WebullView() } label: { Label("Open Webull account", systemImage: "building.columns.fill") }.buttonStyle(MintButton())
-            Text("Webull retail funding and withdrawals are unavailable here; institutional Broker API entitlement is separate.").font(.caption).foregroundStyle(Palette.muted)
-            NavigationLink { CoinbaseView() } label: { Label("Coinbase accounts and actions", systemImage: "bitcoinsign.circle") }.buttonStyle(MintButton())
-            NavigationLink { PaperTradingView() } label: { Label("Paper trading account", systemImage: "chart.line.uptrend.xyaxis") }.buttonStyle(MintButton())
-            Text("Everything you own,\nin one place.").font(.title.bold())
-            Text("These are sample accounts. Live connections will depend on the institution’s data and trading permissions.").font(.subheadline).foregroundStyle(Palette.muted)
-            ForEach(store.engine.accounts) { a in
-                VStack(alignment: .leading, spacing: 15) {
-                    HStack { Image(systemName: a.kind == "Crypto" ? "bitcoinsign.circle" : "building.columns").font(.title2).foregroundStyle(Palette.mint); Spacer(); Text(a.canTrade ? "DEMO TRADING" : "VIEW ONLY").font(.system(size: 9, weight: .bold, design: .monospaced)).padding(7).background(Palette.mint.opacity(0.08), in: Capsule()).foregroundStyle(Palette.mint) }
-                    Text(a.name).font(.headline)
-                    HStack { Text(a.kind).font(.caption).foregroundStyle(Palette.muted); Spacer(); Text("\(money(a.cash)) cash").font(.caption) }
-                }.card()
-            }
-            Button { showConnections = true } label: { Label("Explore live connections", systemImage: "plus").frame(maxWidth: .infinity) }.buttonStyle(MintButton())
+        Screen(title: "Connection & AI", isDemo: false) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Private server connection").font(.headline)
-                Text("Your server connects market data, Webull and optional AI. Assistant-tab orders use demo data. The separate Webull screen requires a broker preview and confirmation. AI requests use your server’s selected provider: local Ollama or OpenAI. OpenAI mode sends the selected portfolio and prompt to OpenAI. Save your connection to keep the access token in this iPhone’s Keychain.").font(.caption).foregroundStyle(Palette.muted)
+                Text("Your private gateway connects Webull, Coinbase, market data and AI. The Assistant tab uses sample holdings. AI uses the provider configured on your gateway: local Ollama on your Mac, or OpenAI, which receives the selected context and prompt. Your gateway access token is saved in this iPhone’s Keychain.").font(.caption).foregroundStyle(Palette.muted)
                 TextField("https://your-private-server", text: $store.aiEndpoint).phoneURLInput()
                 SecureField("Server access token", text: $store.aiToken).phoneSecretInput()
                 Button("Save connection") {
@@ -443,7 +519,9 @@ struct AccountsView: View {
                             }
                             setup = result
                             connectionMessage = "Private server connection verified."
-                        } catch { connectionMessage = error.localizedDescription }
+                        } catch {
+                            if endpoint == store.aiEndpoint, token == store.aiToken { connectionMessage = error.localizedDescription }
+                        }
                     }
                 }.disabled(checkingSetup)
                 if let setup {
@@ -454,37 +532,17 @@ struct AccountsView: View {
                         if let provider = setup.ai_provider { Text("Provider: \(provider == "ollama" ? "Local Ollama on your Mac" : "OpenAI")") }
                         if let model = setup.ai_model { Text("Model: \(model)").font(.caption) }
                         Text("Webull: \(setup.webull_configured ? "configured · " + setup.webull_environment : "needs API configuration")")
-                        Text("Live order submission: \(setup.live_trading_enabled ? "enabled" : "disabled")")
-                        Text("Configuration does not verify provider access. Load research or Webull accounts to check those connections.").foregroundStyle(Palette.muted)
+                        Text("Coinbase: \(setup.coinbase_configured.map { $0 ? "configured" : "needs API configuration" } ?? "not reported by this gateway")")
+                        Text("Webull order submission: \(setup.live_trading_enabled ? "enabled" : "disabled")")
+                        Text("Configuration does not verify provider access. Open an account to load balances; Coinbase access permissions are checked separately there.").foregroundStyle(Palette.muted)
                     }.font(.caption)
                 }
                 Toggle("Use AI for new messages", isOn: $store.aiEnabled).tint(Palette.mint)
                 Text(store.aiEnabled ? "AI service selected · connection not yet verified" : "Offline demo parser selected").font(.caption2).foregroundStyle(Palette.muted)
             }.card()
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Test a rejected order").font(.headline)
-                Toggle("Reject next demo submission", isOn: $store.rejectNext).font(.subheadline).tint(Palette.mint)
-                Text("Use this to check the failure flow. The next confirmed demo order will leave your holdings and cash unchanged.").font(.caption).foregroundStyle(Palette.muted)
-            }.card()
         }
-        .sheet(isPresented: $showConnections) {
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
-                        Text("Connect the accounts\nyou already use.").font(.largeTitle.bold())
-                        Text("Webull is the first implemented connection. Its credentials stay on your private server. Other institutions below are planned connections.").foregroundStyle(Palette.muted)
-                        Label("Brokerage aggregation", systemImage: "building.columns").font(.headline)
-                        Text("For your US Fidelity account, SnapTrade currently lists view-only access. A Fidelity connection can show holdings, but cannot execute trades through that integration.")
-                        Link("View SnapTrade coverage", destination: URL(string: "https://support.snaptrade.com/brokerages")!)
-                        Text("Webull offers an individual Trading API application, subject to review and account eligibility. API access should be confirmed before deciding whether to fund it.")
-                        Link("Webull API application guide", destination: URL(string: "https://developer.webull.com/apis/docs/authentication/IndividualApplicationAPI/")!)
-                        Label("Direct exchange connections", systemImage: "bitcoinsign.circle").font(.headline)
-                        Text("For your Coinbase account, Coinbase Advanced Trade is the proposed crypto connection. Portfolio viewing and trading use separate permissions. Withdrawals are outside this app’s scope.")
-                        Text("Use Accounts → Open Webull account for the implemented connection. Fidelity and Coinbase linking are not yet implemented. Never enter a brokerage password in chat.").font(.subheadline).foregroundStyle(Palette.muted)
-                    }.padding(24)
-                }.background(Palette.background).navigationTitle("Live connections").phoneInlineTitle().toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showConnections = false } } }
-            }.tint(Palette.mint)
-        }
+        .onChange(of: store.aiEndpoint) { _, _ in setup = nil; connectionMessage = "Connection changed; check again." }
+        .onChange(of: store.aiToken) { _, _ in setup = nil; connectionMessage = "Connection changed; check again." }
     }
 }
 

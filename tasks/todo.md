@@ -7,9 +7,10 @@
 - [x] iOS: paper review/history and strategy results accessible; native builds pass and simulator launches. (Builds and simulator end-to-end paper flow re-verified 2026-10-26.)
 - [x] Private gateway deploy preserves authoritative state; authenticated health check succeeds. (Matching production source deployed November 4; old code retained, pinned-TLS authenticated setup HTTP 200 and phone connection verified.)
 - [x] Saved release notes, installation status and continuity checkpoint. (reports/review-2026-10-26/RELEASE-NOTES.md, DEVICE-CONNECTION-REPORT.md, codex-recall checkpoint 2026-10-26.)
-- [x] Claude independently reviews current source — done 2026-10-26; see reports/review-2026-10-26/REVIEW.md.
+- [x] October 26 baseline independently reviewed by Claude; see reports/review-2026-10-26/REVIEW.md. Later changes have their own dated validation; this is not a claim of an independent review of every subsequent revision.
 - [x] Physical iPhone signed, installed, launched and paired. (USB iPhone 16, Developer Mode enabled; direct Mirroring checks November 4 documented in reports/phone-verification-2026-11-04.md.)
 - [x] Real Webull account connectivity: physical iPhone account list, portfolio and balances loaded November 4 using existing production authorization; live trading remains disabled.
-- [ ] Real Coinbase account connectivity (requires valid provider credentials/auth; never inferred from tests).
+- [x] Real Coinbase account connectivity: View-only provider permissions, authenticated pinned-TLS gateway reads and physical-phone balances verified November 5. See reports/coinbase-setup-2026-11-05.md.
+- [x] Version 0.2.0 account screens, connection status and demo separation rebuilt, installed and checked on the physical iPhone. See reports/release-0.2.0-2026-11-05.md.
 
 Follow-on product scope retained explicitly: Fidelity supported data access, live crypto/options/short execution, dividend/FX/intraday strategy implementations with appropriate data, automated prospective strategy operation, and remote always-on infrastructure. Do not mark these complete from exploratory research or a manual paper ledger.

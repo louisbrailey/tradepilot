@@ -1,3 +1,11 @@
+# November 5, 2026 — version 0.2.0 installed and checked
+
+TradePilot 0.2.0 (build 2) is installed and running on the USB iPhone 16. Overview, Holdings and Accounts now lead to real Webull/Coinbase connections, with sample data in clearly labeled disclosures. Webull has labeled currency balances; Coinbase has readable asset cards, exact zero-balance filtering and read-only order history. Action availability requires both provider grants and gateway controls. Connection settings have their own screen and report Coinbase configuration without claiming provider verification.
+
+Physical checks confirmed the new navigation, retained pairing, authenticated setup, Webull balances, Coinbase balances/permissions/order history and the saved paper account. No new orders, cancellations or transfers were submitted. The full gate passes (13 core, 205 backend with one optional signing skip, 41 script tests and Swift smoke checks), and the signed native build passes. See [release evidence and operational limits](reports/release-0.2.0-2026-11-05.md).
+
+The user chose to keep the local development installation. Its current signing profile expires **November 11, 2026 at 00:35 Pacific**; refresh signing and reinstall before then. The Mac must remain awake on the phone’s LAN. Live trading/transfers remain disabled. Broader future product scope is retained in [NEXT-STEPS.md](NEXT-STEPS.md).
+
 # November 5, 2026 — Coinbase read-only connection verified on the phone
 
 Created the explicitly approved View-only ECDSA key for the Primary portfolio after SMS verification on the iPhone 16 Pro. Stored it in the gateway's owner-only private configuration. Coinbase confirms View enabled and Trade/Transfer disabled. The gateway's authenticated, certificate-pinned account and capability routes returned HTTP 200; 26 asset accounts were returned and balances rendered in TradePilot on the physical USB iPhone. Trading, cancellations and transfers remain disabled; no transactions were performed.

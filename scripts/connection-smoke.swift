@@ -95,6 +95,52 @@ precondition(!BrokerValidation.reviewMatches(limited, account: "account-a", envi
 precondition(!BrokerValidation.reviewMatches(limited, account: "account-a", environment: "sandbox", orderType: "LIMIT", limitPrice: "100.26", now: 1000))
 print("PASS exact preview terms and credential-change binding")
 
+func coinbaseAccess(view: Bool = true, trade: Bool, transfer: Bool = false,
+                    trading: Bool, cancellation: Bool = false, transfers: Bool = false,
+                    portfolioType: String = "DEFAULT") -> AccessCapabilities {
+    AccessCapabilities(provider: "coinbase", environment: "production",
+        granted: AccessPermissions(can_view: view, can_trade: trade, can_transfer: transfer, portfolio_uuid: "account-a"),
+        trading_enabled: trading, cancellation_enabled: cancellation, transfers_enabled: transfers,
+        limitations: [], portfolios: [AccessPortfolio(id: "account-a", type: portfolioType)])
+}
+for provider in [false, true] {
+    for gateway in [false, true] {
+        let access = coinbaseAccess(trade: provider, transfer: provider, trading: gateway, cancellation: gateway, transfers: gateway)
+        for action in ["limit_order", "cancel_order", "internal_transfer"] {
+            precondition(access.permits(action, account: "account-a") == (provider && gateway))
+            precondition(!access.permits(action, account: "account-b"))
+        }
+        precondition(!access.permits("unknown", account: "account-a"))
+    }
+}
+precondition(!coinbaseAccess(view: false, trade: true, trading: true).permits("limit_order", account: "account-a"))
+precondition(!coinbaseAccess(trade: true, trading: true, portfolioType: "INTX").permits("limit_order", account: "account-a"))
+precondition(!coinbaseAccess(trade: true, trading: true, portfolioType: "unknown").permits("limit_order", account: "account-a"))
+for (amount, hidden) in [("0", true), ("0.0000", true), ("0.00000000000000000000000000000000000000000000001", false),
+                         ("1", false), ("NaN", false), ("", false), ("0\n", false)] {
+    let asset = CoinbaseAccount(id: "one", currency: "BTC", name: "Bitcoin", available: amount, hold: "0", total: amount)
+    precondition(asset.hasZeroBalance == hidden)
+}
+let held = CoinbaseAccount(id: "one", currency: "BTC", name: "Bitcoin", available: "0", hold: "0.01", total: "0.01")
+precondition(!held.hasZeroBalance)
+let balances = BrokerBalanceSummary.lines(#"{"total_asset_currency":"USD","total_cash_balance":"0.40","total_net_liquidation_value":"100","total_unrealized_profit_loss":"-2.50","total_market_value":"NaN"}"#)
+precondition(balances.count == 3 && balances.contains { $0.title == "Cash balance" && $0.value == "0.40 USD" })
+precondition(balances.contains { $0.value == "-2.50 USD" })
+precondition(BrokerBalanceSummary.lines(#"{"total_cash_balance":"100"}"#).isEmpty)
+precondition(BrokerBalanceSummary.lines(#"{"total_asset_currency":"USD","total_cash_balance":true}"#).isEmpty)
+precondition(BrokerBalanceSummary.lines("not JSON").isEmpty)
+print("PASS provider-plus-gateway action gates, tiny/held Coinbase balances, and explicit-currency Webull summaries")
+
+let setupFixture = #"{"version":"1","checked_at":1,"ai_configured":true,"market_data_configured":true,"webull_configured":true,"webull_environment":"production","live_trading_enabled":false,"configuration_only":true}"#
+let legacySetup = try JSONDecoder().decode(GatewaySetup.self, from: Data(setupFixture.utf8))
+precondition(legacySetup.coinbase_configured == nil)
+for configured in ["true", "false"] {
+    let currentSetup = setupFixture.dropLast() + ",\"coinbase_configured\":" + configured + "}"
+    let decoded = try JSONDecoder().decode(GatewaySetup.self, from: Data(currentSetup.utf8))
+    precondition(decoded.coinbase_configured == (configured == "true"))
+}
+print("PASS Coinbase setup status with legacy-gateway compatibility")
+
 let signedEstimate = BrokerReview(id: review.id, confirmation_token: review.confirmation_token,
     environment: review.environment, account_id: review.account_id, order: review.order,
     estimated_cost: "-200", estimated_fee: "-0.01", expires_at: review.expires_at)

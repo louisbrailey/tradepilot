@@ -1,9 +1,32 @@
-# Remaining work
+# Release scope and remaining work
 
-See LATEST-STATUS.md for completed evidence.
+See [LATEST-STATUS.md](LATEST-STATUS.md) for dated verification and [tasks/todo.md](tasks/todo.md) for the acceptance checklist. Earlier device, Developer Mode, LAN pairing, Webull authentication and Coinbase authentication blockers have been resolved.
 
-External dependencies: the iPhone is paired with Xcode but Developer Mode must be turned on on the phone before `scripts/install-iphone.sh` can build to it; the Mac must be on the home LAN (a private IPv4 on en0) for the deployed gateway to start, after which the phone imports the 2026-10-26 `TradePilotPairing.json`; the existing Webull account must complete authenticated mobile API access. These cannot be replaced by running another model or an Android VM. Source and installation helper are ready when those conditions change.
+## Supported local app
 
-Then verify real read-only portfolio and provider preview, perform prospective paper execution/reconciliation, and assess evidence before enabling real submissions. Do not treat mocked broker tests or historical returns as live verification.
+- Physical iPhone installation with a certificate-pinned private Mac gateway.
+- Webull account holdings/balances and Coinbase View-only asset balances.
+- Explicitly confirmed paper trading with a durable ledger and journal.
+- Local AI, Massive research, fixed strategy comparisons and Kronos historical replay.
+- Sample portfolio and demo assistant kept visibly separate from real account data.
 
-Further implementation: Coinbase/Fidelity account adapters, tested strategies beyond the current SMA, continuous prospective paper ledger, and remote hosting if required. Current Mac gateway requires awake Mac and same LAN. No background trading or strategy promotion is enabled.
+Broker write functionality in source is not production-qualified by these read-only checks. Live trading, cancellation and transfers remain disabled in the current deployment. The Coinbase key has no Trade or Transfer grants. No strategy has qualified for live adoption.
+
+## Operational requirements
+
+The Mac must remain awake and reachable on the phone's LAN. A changing public IPv4 requires an update to the Coinbase key allowlist. A changing local hostname requires deliberate TLS re-pairing. The user chose to keep the local development app. Its current signing profile expires November 11, 2026 at 00:35 Pacific; refresh signing and reinstall before then. The gateway TLS certificate also has finite validity and needs renewal before expiration. See [LOCAL-SERVICE.md](LOCAL-SERVICE.md), [COINBASE-SETUP.md](COINBASE-SETUP.md) and the latest release report.
+
+## Further product scope
+
+These are separate features or external integrations, not completed by installing this release:
+
+| Work | What remains |
+| --- | --- |
+| Fidelity account data | Supported provider integration, entitlement and separately approved account connection. No retail trading endpoint is invented. |
+| Always-on remote access | Hosting/network design and a reviewed deployment; the current gateway is local to the Mac. |
+| Automated prospective paper strategies | Explicit strategy/schedule, independent data-quality gates and prospective evaluation. The existing paper account is manually confirmed. |
+| Additional strategy families | Appropriate dividend, FX, intraday or options data plus preregistered evaluation; no tuning observed holdouts into a success claim. |
+| Live crypto/options/short execution | Product-specific contracts, provider entitlement, risk controls and independently verified execution evidence before any enablement. |
+| App Store/TestFlight distribution | Distribution signing and the applicable Apple account/review requirements. Current installation is a signed development build. |
+
+Do not substitute mocked tests, historical returns or a successful login for these acceptance criteria.

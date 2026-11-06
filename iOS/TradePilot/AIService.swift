@@ -9,6 +9,7 @@ struct GatewaySetup: Decodable, Sendable {
     let ai_model: String?
     let market_data_configured: Bool
     let webull_configured: Bool
+    let coinbase_configured: Bool?
     let webull_environment: String
     let live_trading_enabled: Bool
     let configuration_only: Bool

@@ -58,7 +58,7 @@ The deployed source supports long-stock LIMIT/DAY production reviews and separat
 
 The iOS client accepts HTTPS, stores the gateway token in Keychain, and can pin the paired local certificate. The certificate-pairing flow is implemented and pairing import succeeds in the simulator. Complete the phone test only after the physical device is paired and available.
 
-In Accounts, enter only the private HTTPS server URL and app access token. Never enter the Webull app secret, private key, Massive key, or OpenAI key on the phone. Pairing files and credentials must remain outside source archives.
+In Accounts → Gateway connection & AI, enter only the private HTTPS server URL and app access token. Never enter the Webull app secret, private key, Massive key, or OpenAI key on the phone. Pairing files and credentials must remain outside source archives.
 
 ## Install on a physical iPhone
 

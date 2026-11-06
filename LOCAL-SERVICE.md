@@ -45,7 +45,7 @@ Omit `--dry-run` to install and load the service. Dry run writes only a review p
 python3 "$HOME/Library/Application Support/TradePilot/gateway/scripts/manage-local-service.py" status
 ```
 
-Status reports load state, PID, start count, and last exit code without reading private configuration. A failed process restarts with a 30-second throttle. Successful loading alone does not prove that the gateway is responding: verify the app's authenticated **Check connection & setup** screen, then a read-only account or market-data request. A TLS error must be resolved rather than bypassed.
+Status reports load state, PID, start count, and last exit code without reading private configuration. A failed process restarts with a 30-second throttle. Successful loading alone does not prove that the gateway is responding: open **Accounts → Gateway connection & AI → Check connection & setup**, then a read-only account or market-data request. A TLS error must be resolved rather than bypassed.
 
 ## Addresses and local hostnames
 
