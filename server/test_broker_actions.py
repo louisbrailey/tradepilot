@@ -381,10 +381,12 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(request.method, 'POST')
         self.assertEqual(json.loads(request.data), body)
     def test_http_rejection_timeout_and_json_errors_are_redacted(self):
-        for error, code in ((HTTPError('SECRET', 403, 'SECRET', {}, None), 'rejected'), (URLError('SECRET'), 'uncertain')):
+        body = io.BytesIO(b'SECRET')
+        for error, code in ((HTTPError('SECRET', 403, 'SECRET', {}, body), 'rejected'), (URLError('SECRET'), 'uncertain')):
             with self.assertRaises(CoinbaseError) as caught: self.adapter(error).permissions()
             self.assertEqual(caught.exception.code, code)
             self.assertNotIn('SECRET', str(caught.exception))
+        self.assertTrue(body.closed)
     def test_orders_complete_pagination_and_account_binding(self):
         a = self.adapter({'orders': [], 'has_next': True, 'cursor': 'x'})
         with self.assertRaises(CoinbaseError): a.orders('a')

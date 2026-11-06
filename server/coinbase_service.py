@@ -1,13 +1,15 @@
 """Read-only personal Coinbase Advanced Trade balances; no order/transfer methods."""
 import base64
 import json
+import os
 import re
 import secrets
 import time
 from decimal import Decimal, localcontext
+from http.client import HTTPSConnection
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 HOST = 'api.coinbase.com'
 PATH = '/api/v3/brokerage/accounts'
@@ -24,6 +26,24 @@ class CoinbaseError(Exception):
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+class _IPv4HTTPSConnection(HTTPSConnection):
+    def __init__(self, host, **kwargs):
+        # Bind only this connection to IPv4; retain the hostname for TLS/SNI.
+        super().__init__(host, source_address=('0.0.0.0', 0), **kwargs)
+
+
+class _IPv4HTTPSHandler(HTTPSHandler):
+    def https_open(self, request):
+        return self.do_open(_IPv4HTTPSConnection, request, context=self._context)
+
+
+def _opener():
+    if os.environ.get('COINBASE_IPV4_ONLY') == 'enabled':
+        # A proxy could use a different egress address than the key allowlist.
+        return build_opener(_NoRedirect(), ProxyHandler({}), _IPv4HTTPSHandler())
+    return build_opener(_NoRedirect())
 
 
 def _b64(value):
@@ -47,7 +67,7 @@ class CoinbaseAdapter:
     def __init__(self, key_name=None, private_key=None, opener=None, clock=time.time, token_factory=None):
         self.key_name = key_name
         self.private_key = private_key
-        self.opener = opener if opener is not None else build_opener(_NoRedirect())
+        self.opener = opener if opener is not None else _opener()
         self.clock = clock
         self.token_factory = token_factory
 

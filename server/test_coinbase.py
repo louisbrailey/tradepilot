@@ -1,10 +1,12 @@
 import base64
 import io
 import json
+import socket
+import ssl
 import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
-from coinbase_service import CoinbaseAdapter, CoinbaseError, _NoRedirect
+from coinbase_service import CoinbaseAdapter, CoinbaseError, _NoRedirect, _IPv4HTTPSConnection, _IPv4HTTPSHandler
 
 KEY = 'organizations/test-org/apiKeys/test-key'
 
@@ -32,6 +34,45 @@ def adapter(*pages):
 
 
 class CoinbaseTests(unittest.TestCase):
+    def test_ipv4_route_skips_ipv6_and_keeps_verified_hostname_tls(self):
+        connection = _IPv4HTTPSConnection('api.coinbase.com', timeout=15)
+        self.assertEqual(connection._context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(connection._context.check_hostname)
+        ipv6, ipv4 = Mock(), Mock()
+        ipv6.bind.side_effect = OSError('IPv4 source cannot bind an IPv6 socket')
+        addresses = [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('::1', 443, 0, 0)),
+                     (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.0.2.1', 443))]
+        with patch('socket.getaddrinfo', return_value=addresses), \
+                patch('socket.socket', side_effect=[ipv6, ipv4]), \
+                patch.object(connection._context, 'wrap_socket') as wrap:
+            connection.connect()
+        ipv6.close.assert_called_once()
+        ipv6.connect.assert_not_called()
+        ipv4.bind.assert_called_once_with(('0.0.0.0', 0))
+        ipv4.connect.assert_called_once_with(('192.0.2.1', 443))
+        wrap.assert_called_once_with(ipv4, server_hostname='api.coinbase.com')
+
+    def test_ipv4_route_fails_closed_when_only_ipv6_is_available(self):
+        connection = _IPv4HTTPSConnection('api.coinbase.com', timeout=15)
+        sock = Mock()
+        sock.bind.side_effect = OSError('IPv4 source cannot bind an IPv6 socket')
+        with patch('socket.getaddrinfo', return_value=[(socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('::1', 443, 0, 0))]), \
+                patch('socket.socket', return_value=sock), self.assertRaises(OSError):
+            connection.connect()
+        sock.connect.assert_not_called()
+        sock.close.assert_called_once()
+
+    def test_ipv4_transport_is_opt_in_direct_and_redirects_stay_blocked(self):
+        for value in ('', 'disabled', 'enabled'):
+            with self.subTest(value=value), patch.dict('os.environ', {
+                    'COINBASE_IPV4_ONLY': value, 'https_proxy': 'http://proxy.invalid:8080'}):
+                service = CoinbaseAdapter()
+                handlers = service.opener.handlers
+                self.assertEqual(any(isinstance(h, _IPv4HTTPSHandler) for h in handlers), value == 'enabled')
+                self.assertTrue(any(isinstance(h, _NoRedirect) for h in handlers))
+                if value == 'enabled':
+                    self.assertFalse(any(getattr(h, 'proxies', {}) for h in handlers))
+
     def test_not_configured_never_requests(self):
         service = CoinbaseAdapter(opener=Mock())
         with self.assertRaises(CoinbaseError) as caught:

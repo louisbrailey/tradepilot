@@ -1,12 +1,16 @@
 # Expanded source capabilities
 
-The account-balances route below remains read-only. Separately confirmed trading and internal portfolio transfers are now implemented in source; see [BROKER-ACCESS.md](BROKER-ACCESS.md). Writes remain default-disabled and this change has not been deployed.
+The account-balances route below remains read-only. Separately confirmed trading and internal portfolio transfers are implemented and deployed; see [BROKER-ACCESS.md](BROKER-ACCESS.md). The configured key has no Trade or Transfer permission, and gateway writes remain disabled.
+
+## Verified November 5, 2026
+
+The user-approved ECDSA key is restricted to View access for the Primary portfolio and the gateway's public IPv4 address. Coinbase's permission endpoint confirms `can_view=true`, `can_trade=false`, and `can_transfer=false`. The authenticated, certificate-pinned gateway returned 26 asset accounts, and **Load Coinbase accounts** rendered balances on the physical USB iPhone at 6:26 PM. The iPhone 16 Pro was used only for the SMS verification through Mirroring. No transactions were performed. See [setup evidence](reports/coinbase-setup-2026-11-05.md).
 
 # Coinbase read-only accounts
 
 TradePilot includes a personal Coinbase Advanced Trade account adapter in `server/coinbase_service.py`. It fetches every permitted account page and displays available, held and total quantities in each account's own currency. These are asset quantities, not USD valuations. Key restrictions may expose only a subset of the user's portfolios. No trading, transfer, deposit, withdrawal or key-creation method is implemented.
 
-This connector has been verified with synthetic responses and temporary signing keys. Production authentication has not been verified and no Coinbase credentials were supplied during development.
+Automated tests use synthetic responses and temporary signing keys. Production read access was separately verified during the user-authorized setup above.
 
 ## Private configuration
 
@@ -14,6 +18,10 @@ Use a personal Coinbase App/CDP key with **ECDSA P-256**, restricted to **View**
 
 - `COINBASE_API_KEY_NAME`: the complete `organizations/.../apiKeys/...` name.
 - `COINBASE_API_PRIVATE_KEY`: PEM private key, preserving newlines (literal escaped `\n` is also accepted).
+
+Optional `COINBASE_IPV4_ONLY=enabled` supports IPv4-only key allowlists. This binds only Coinbase connections to IPv4 and bypasses configured proxies for those requests; normal hostname/certificate verification and redirect refusal remain in force. Other providers and the default transport are unchanged.
+
+The deployed gateway uses this option because its default IPv6 route was rejected by the IPv4-restricted key. If the gateway's public IPv4 changes, update the key's allowlist before expecting read access to recover. This restriction is separate from the phone-to-Mac LAN pairing.
 
 The gateway interpreter requires `cryptography`; this is already used by the project's private TLS setup. Missing credentials or dependency produce explicit unavailable errors. An empty account list is only returned after a successful authenticated response, never as a substitute for failed configuration.
 

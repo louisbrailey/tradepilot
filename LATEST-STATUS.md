@@ -1,3 +1,9 @@
+# November 5, 2026 — Coinbase read-only connection verified on the phone
+
+Created the explicitly approved View-only ECDSA key for the Primary portfolio after SMS verification on the iPhone 16 Pro. Stored it in the gateway's owner-only private configuration. Coinbase confirms View enabled and Trade/Transfer disabled. The gateway's authenticated, certificate-pinned account and capability routes returned HTTP 200; 26 asset accounts were returned and balances rendered in TradePilot on the physical USB iPhone. Trading, cancellations and transfers remain disabled; no transactions were performed.
+
+Added and deployed opt-in `COINBASE_IPV4_ONLY` routing because the key's IPv4 allowlist rejected the default IPv6 egress. TLS hostname/certificate verification remains enabled. All 205 backend tests pass under the deployed interpreter, including signing. The first full run exposed an existing Python 3.9-incompatible HTTP-error fixture; giving it a real in-memory response body fixed the fixture and added response-closure verification. See [Coinbase setup and operational limits](COINBASE-SETUP.md) and [evidence](reports/coinbase-setup-2026-11-05.md).
+
 # November 4, 2026 — Webull account connected on the phone
 
 At the user’s request, loaded the existing production Webull connection from TradePilot on the USB iPhone, selected the authorized Individual Cash account, and refreshed its portfolio. Current balance details and an empty holdings table rendered successfully. This is direct read-access verification, not a fake-provider test. Credentials and existing authorization stayed on the gateway; no trading flag was changed and no order, cancellation or transfer was performed. See [Webull setup](WEBULL-SETUP.md).
