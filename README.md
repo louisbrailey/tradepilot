@@ -9,7 +9,7 @@ Kronos is available under **Research → Kronos forecasting lab** for local hist
 ## Included
 
 - Automated prospective paper strategies with a private scheduler, separate portfolios and explicit stop/data gates.
-- SwiftUI account overview, Webull/Coinbase balances, paper trading, demo portfolio, assistant and research/journal screens.
+- SwiftUI app with four tabs: Home (connection status, practice account, recent orders), Accounts (Webull, Coinbase, paper, practice, Settings), Research (strategy lab, forecast replay, market research, recorded backtest) and Journal. The assistant opens as a sheet from Home. A shared design system (`iOS/TradePilot/DesignSystem.swift`) supplies the theme, status badges, metric tiles and the single confirmation sheet used by every order flow.
 - Local Ollama inference or optional OpenAI, strict structured proposals, independent order validation, and separate confirmation.
 - Webull long-stock DAY market/limit order adapter with durable no-duplicate submission and execution evidence.
 - Real Massive/Benzinga research and reproducible multi-stage historical evaluation with results in the app.
@@ -21,7 +21,7 @@ See [confirmed broker access, supported scope and safety controls](BROKER-ACCESS
 
 Open `iOS/TradePilot.xcodeproj` in Xcode. Select TradePilot and an installed iPhone simulator to run. A physical installation requires Apple signing and a trusted, paired iPhone with Developer Mode turned on; see [WEBULL-SETUP.md](WEBULL-SETUP.md) and `scripts/install-iphone.sh`.
 
-Phone connection checks and the AI toggle are under **Accounts → Gateway connection & AI**. The current development profile expires November 11, 2026; refresh signing and reinstall before expiry.
+Phone connection checks and the assistant toggle are under **Accounts → Settings** (also the gear on Home). The current development profile expires November 11, 2026; refresh signing and reinstall before expiry.
 
 The already-deployed local gateway is described in [LOCAL-SERVICE.md](LOCAL-SERVICE.md). Configure inference with [LOCAL-AI.md](LOCAL-AI.md). Credentials and private runtime files are deliberately excluded from the source ZIP.
 

@@ -153,6 +153,23 @@ class ActionsTests(unittest.TestCase):
         self.assertEqual(len(self.fake.calls), 1)
         self.assertEqual(self.holds()[0][-1], 'UNKNOWN')
         self.assertNotIn('PRIVATE SECRET', (self.path / 'actions.sqlite3').read_bytes().decode(errors='ignore'))
+    def test_identified_open_order_becomes_accepted_and_cancellable(self):
+        self.fake.failure = TimeoutError()
+        r = self.s.review(self.intent()); self.s.confirm(self.approval(r))
+        self.assertEqual(self.s.status(r['id'])['state'], 'UNKNOWN')
+        self.fake.failure = None
+        sent = self.fake.calls[0][1]
+        # A different client_order_id is not this action; the state must not change.
+        self.fake.history = [{'client_order_id': 'someone-else', 'order_id': 'order-9'}]
+        self.assertEqual(self.s.reconcile(r['id'])['state'], 'UNKNOWN')
+        self.fake.history = [{'client_order_id': sent['client_order_id'], 'order_id': 'order-1'}]
+        self.fake.status = 'OPEN'
+        self.assertEqual(self.s.reconcile(r['id'])['state'], 'ACCEPTED')
+        self.assertEqual(self.holds()[0][-1], 'SUBMITTING')
+        self.assertEqual(len(self.fake.calls), 1)
+        cancel = self.s.review({'client_id': 'cancel-1', 'account_id': '11111111-1111-4111-8111-111111111111', 'environment': 'production', 'action': 'cancel_order', 'order_id': 'order-1'})
+        self.assertEqual(self.s.confirm(self.approval(cancel))['state'], 'ACCEPTED')
+        self.assertEqual(self.fake.calls[-1][0], 'cancel_order')
     def test_missing_lookup_cannot_clear_unknown(self):
         self.fake.failure = TimeoutError()
         r = self.s.review(self.intent()); self.s.confirm(self.approval(r))

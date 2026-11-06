@@ -392,6 +392,17 @@ class BrokerActions:
                 economic_terms = json.loads(parent['terms'])
         if economic_terms['action'] == 'limit_order' and any(order.get(k) != economic_terms['body'][k] for k in ('client_order_id', 'product_id', 'side', 'order_configuration')):
             raise BrokerError('Reconciliation terms mismatch.')
+        if (row['state'] in ('UNKNOWN', 'SUBMITTING') and hold_id == action_id and terms['action'] == 'limit_order'
+                and order.get('status') in ('OPEN', 'PENDING', 'QUEUED')):
+            # The broker positively identified a live order for this exact action: record acceptance
+            # so it can be cancelled from the app. The hold stays; nothing is retransmitted.
+            with self.lock, self.db:
+                self.db.execute('BEGIN IMMEDIATE')
+                changed = self.db.execute("UPDATE broker_actions SET state='ACCEPTED',result=? WHERE id=? AND state=?",
+                                          (canonical({'order_id': order_id}), action_id, row['state'])).rowcount
+            if changed:
+                self.admission.transition(action_id, 'SUBMITTING')
+            return self.status(action_id)
         if order.get('status') in ('FILLED', 'CANCELLED', 'EXPIRED', 'FAILED'):
             evidence = {'order_id': order_id, 'broker_status': order['status']}
             if economic_terms['action'] == 'limit_order':

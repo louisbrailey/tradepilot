@@ -12,7 +12,8 @@ struct BrokerSnapshot: Decodable {
     let balance: String; let as_of: Double
 }
 struct BrokerBalanceLine: Identifiable {
-    let id: String; let title: String; let value: String
+    let id: String; let title: String; let value: String; let amount: Decimal
+    var tone: Tone { amount > 0 ? .positive : amount < 0 ? .negative : .neutral }
 }
 enum BrokerBalanceSummary {
     static func lines(_ json: String) -> [BrokerBalanceLine] {
@@ -21,12 +22,13 @@ enum BrokerBalanceSummary {
               let currency = values["total_asset_currency"] as? String,
               currency.count == 3, currency.allSatisfy({ $0.isASCII && $0.isUppercase }) else { return [] }
         let fields = [("total_net_liquidation_value", "Net liquidation value"),
-                      ("total_market_value", "Market value"), ("total_cash_balance", "Cash balance"),
-                      ("total_unrealized_profit_loss", "Unrealized gain / loss"),
-                      ("total_day_profit_loss", "Day gain / loss")]
+                      ("total_market_value", "Market value"), ("total_cash_balance", "Cash"),
+                      ("total_unrealized_profit_loss", "Unrealised P/L"),
+                      ("total_day_profit_loss", "Day P/L")]
         return fields.compactMap { key, title in
-            guard let value = values[key] as? String, PaperValidation.decimal(value) != nil else { return nil }
-            return BrokerBalanceLine(id: key, title: title, value: "\(value) \(currency)")
+            guard let value = values[key] as? String, let number = strictDecimal(value) else { return nil }
+            let signed = key.hasSuffix("profit_loss")
+            return BrokerBalanceLine(id: key, title: title, value: signed ? signedMoney(number, currency: currency) : money(number, currency: currency), amount: number)
         }
     }
 }
@@ -148,15 +150,11 @@ enum BrokerValidation {
         return nonnegative ? value >= 0 : value > 0
     }
 }
-private final class BrokerNoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
-}
 @MainActor
 enum BrokerAPI {
     static func call<T: Decodable>(_ operation: String, endpoint: String, token: String, body: [String: Any]) async throws -> T {
         guard token.count >= 32 else {
-            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Set your private HTTPS server and access token in Accounts first."])
+            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connect to your server in Settings first."])
         }
         let base = try ConnectionSettings.authorizedEndpoint(endpoint)
         var request = URLRequest(url: base.appendingPathComponent("v1/webull/\(operation)"))
@@ -168,7 +166,7 @@ enum BrokerAPI {
         defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"] ?? "Webull is unavailable. Refresh an attempted order before creating another."
+            let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"] ?? "Couldn’t reach Webull (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))."
             throw NSError(domain: "TradePilot", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
         }
         return try JSONDecoder().decode(T.self, from: data)
@@ -186,7 +184,7 @@ struct WebullView: View {
     @State private var symbol = ""
     @State private var quantity = ""
     @State private var limit = ""
-    @State private var feePolicy = "require_provider_cap"
+    @State private var feePolicy = "accept_rechecked_estimate"
     @State private var feeCeiling = ""
     @State private var debitCeiling = ""
     @State private var headroom = ""
@@ -195,7 +193,9 @@ struct WebullView: View {
     @State private var receipt: BrokerReceipt?
     @State private var attempted = false
     @State private var busy = false
-    @State private var status = "Connect to load your Webull accounts. Credentials stay on your private server."
+    @State private var status = ""
+    @State private var statusKind: NoticeKind = .info
+    @State private var sheetStatus = ""
     @State private var cancellation: AccessReview?
     @State private var cancellationBinding: BrokerConnectionBinding?
     @AppStorage("webullPendingReview") private var pendingID = ""
@@ -204,195 +204,243 @@ struct WebullView: View {
     @AppStorage("webullPendingEnvironment") private var pendingEnvironment = ""
     @AppStorage("webullPendingClientOrder") private var pendingClientOrder = ""
 
+    private var isLive: Bool { snapshot?.environment == "production" }
+    private var accountLabel: String { snapshot?.accounts.first(where: { $0.id == account })?.label ?? account }
+
     var body: some View {
-        Screen(title: "Webull", isDemo: false) {
-            Text(snapshot?.environment == "production" ? "WEBULL · REAL ACCOUNT" : "WEBULL · \(snapshot?.environment.uppercased() ?? "DISCONNECTED")")
-                .font(.caption.bold()).foregroundStyle(snapshot?.environment == "production" ? .orange : Palette.mint)
-            Text(status).font(.subheadline).textSelection(.enabled)
-            Button("Load accounts") { run { journal("request", "Load Webull accounts"); try await load() } }.buttonStyle(MintButton()).disabled(busy)
+        SubScreen(title: "Webull", refresh: { await refreshCurrent() }) {
+            HStack(spacing: Spacing.s) {
+                StatusBadge.environment(snapshot?.environment)
+                if let snapshot, portfolioAccount == account, !account.isEmpty { Text("Updated \(relativeTime(snapshot.as_of))").font(.footnote).foregroundStyle(Theme.textTertiary) }
+                Spacer()
+                if busy { ProgressView() }
+            }
+            if !pendingID.isEmpty { pendingSection }
             if let snapshot {
-                Picker("Account", selection: $account) {
-                    Text("Select an account").tag("")
-                    ForEach(snapshot.accounts) { Text($0.label).tag($0.id) }
-                }.disabled(busy || review != nil || !pendingID.isEmpty)
-                Button("Refresh portfolio") { run { journal("request", "Refresh Webull portfolio"); try await load() } }.disabled(busy || account.isEmpty)
+                SectionCard {
+                    Picker("Account", selection: $account) {
+                        Text("Select an account").tag("")
+                        ForEach(snapshot.accounts) { Text($0.label).tag($0.id) }
+                    }.pickerStyle(.menu).disabled(busy || review != nil || !pendingID.isEmpty)
+                    if account.isEmpty { Footnote("Choose an account to load its balances and holdings.") }
+                }
                 if portfolioAccount == account, !account.isEmpty {
                     portfolioSection(snapshot)
-                } else if !account.isEmpty {
-                    Text("Refresh portfolio for this account before viewing holdings or balances.").font(.caption).foregroundStyle(Palette.muted)
+                    executionSection(snapshot)
+                    if pendingID.isEmpty && review == nil { orderForm }
+                } else if !account.isEmpty, !busy {
+                    EmptyState(title: "Not loaded", message: "Pull down to load this account.", icon: "arrow.down")
                 }
-                executionSection(snapshot)
+            } else if !busy {
+                EmptyState(title: "Not connected", message: "Pull down to load your Webull accounts through your server.", icon: "arrow.down")
             }
-            if !pendingID.isEmpty {
-                Text("An order submission needs reconciliation. Refresh its broker status before entering another order.").font(.subheadline)
-                if !pendingAccount.isEmpty || !pendingEnvironment.isEmpty {
-                    Text("Pending: \(pendingEnvironment) · account \(pendingAccount)").font(.caption).foregroundStyle(Palette.muted)
+            if let receipt {
+                SectionCard(title: "Last order") {
+                    HStack { StatusBadge.orderState(receipt.state); Spacer(); Text("Ref \(receipt.client_order_id.prefix(8))").font(.caption).monospaced().foregroundStyle(Theme.textTertiary) }
+                    Text(receipt.detail).font(.footnote).foregroundStyle(Theme.textSecondary).textSelection(.enabled)
+                    Footnote("Sent is not filled. Check the status until the broker reports a final state.")
                 }
-                Button("Refresh submitted order") { run { try await refreshOrder() } }.disabled(busy)
-                if pendingEnvironment == "production" {
-                    Button("Review cancellation of this order") { run {
+            }
+            OutcomeNotice(text: status, kind: statusKind)
+        }
+        .task { if snapshot == nil { await refreshCurrent() } }
+        .onConnectionChange(store) { invalidateConnection() }
+        .onChange(of: account) { _, _ in portfolioAccount = nil; executions = nil; Task { await refreshCurrent() } }
+        .sheet(item: $review, onDismiss: { sheetStatus = "" }) { r in
+            ConfirmationSheet(title: "Review order",
+                              headline: "\(r.order["side"]?.capitalized ?? "") \(r.order["quantity"] ?? "") \(r.order["symbol"] ?? "")",
+                              badge: StatusBadge.environment(r.environment),
+                              disclaimer: r.environment == "production" ? "This places a real order with Webull. Market prices can move before it executes, and actual fees and debit can exceed the estimates." : "Sandbox orders do not use real money.",
+                              expiresAt: Date(timeIntervalSince1970: r.expires_at),
+                              confirmTitle: r.environment == "production" ? "Place live order" : "Place sandbox order",
+                              destructive: r.environment == "production",
+                              busy: busy || attempted, notice: sheetStatus, noticeKind: .error,
+                              rows: {
+                                  DetailRow("Account", snapshot?.accounts.first(where: { $0.id == r.account_id })?.label ?? r.account_id)
+                                  DetailRow("Order type", "\((r.order["order_type"] ?? "").capitalized) · good for the day")
+                                  if let price = r.order["limit_price"] { DetailRow("Limit price", gatewayMoney(price)) }
+                                  DetailRow("Estimated cost", gatewayMoney(r.estimated_cost))
+                                  DetailRow("Estimated fees", gatewayMoney(r.estimated_fee))
+                                  if let terms = r.economic_terms {
+                                      Divider().overlay(Theme.separator)
+                                      ForEach(terms.keys.sorted(), id: \.self) { key in DetailRow(titleCase(key), terms[key] ?? "") }
+                                  }
+                              },
+                              confirm: { run { try await confirm(r) } },
+                              cancel: { run {
+                                  journal("request", "Dismiss Webull review", reference: r.id, accountID: r.account_id, environment: r.environment)
+                                  let _: BrokerReceipt = try await api("dismiss", ["id": r.id])
+                                  self.review = nil
+                              } })
+            .interactiveDismissDisabled()
+        }
+    }
+
+    // MARK: Sections
+
+    private var pendingSection: some View {
+        SectionCard(title: "Order awaiting confirmation") {
+            HStack(spacing: Spacing.s) {
+                StatusBadge.environment(pendingEnvironment)
+                Text(pendingAccount.isEmpty ? "" : (snapshot?.accounts.first(where: { $0.id == pendingAccount })?.label ?? pendingAccount)).font(.footnote).foregroundStyle(Theme.textSecondary)
+            }
+            Footnote("Webull has not yet reported a final result. Check its status before placing another order.")
+            Button("Check status") { run { try await refreshOrder() } }.buttonStyle(PrimaryButtonStyle()).disabled(busy)
+            if pendingEnvironment == "production" {
+                if let c = cancellation {
+                    Divider().overlay(Theme.separator)
+                    Text(c.summary).font(.footnote).monospaced().textSelection(.enabled)
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let expired = context.date.timeIntervalSince1970 >= c.expires_at
+                        Button(expired ? "Cancellation review expired" : "Confirm cancellation") { run {
+                            guard cancellationBinding?.matches(endpoint: store.aiEndpoint, token: store.aiToken) == true,
+                                  let token = c.token, c.expires_at > Date().timeIntervalSince1970 else { throw mismatchError() }
+                            cancellation = nil; cancellationBinding = nil
+                            let r: AccessReview = try await api("cancel/confirm", ["id": c.id, "token": token, "digest": c.digest, "approved": true])
+                            guard r.id == c.id else { throw mismatchError() }
+                            status = "Cancel request \(StatusBadge.orderState(r.state).text.lowercased()). Check the order’s status for the final result."; statusKind = .info
+                        } }.buttonStyle(PrimaryButtonStyle(tone: .live)).disabled(busy || expired)
+                    }
+                } else {
+                    Button("Request cancellation") { run {
                         let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
                         guard pendingEndpoint == binding.endpoint else { throw mismatchError() }
                         let r: AccessReview = try await api("cancel/review", ["id": pendingID])
                         guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
                         cancellation = r; cancellationBinding = binding
-                    } }.disabled(busy)
-                    if let c = cancellation {
-                        Text(c.summary).font(.caption.monospaced())
-                        Button("Confirm this exact cancellation") { run {
-                            guard cancellationBinding?.matches(endpoint: store.aiEndpoint, token: store.aiToken) == true,
-                                  let token = c.token, c.expires_at > Date().timeIntervalSince1970 else { throw mismatchError() }
-                            cancellation = nil
-                            let r: AccessReview = try await api("cancel/confirm", ["id": c.id, "token": token, "digest": c.digest, "approved": true])
-                            status = "Cancellation: \(r.state). Refresh original order for authoritative status."
-                        } }.disabled(busy || c.expires_at <= Date().timeIntervalSince1970)
-                    }
+                    } }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
                 }
-            } else if let review {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Review \(review.environment == "production" ? "real" : "sandbox") order").font(.title2.bold())
-                    Text("\(review.order["side"] ?? "") \(review.order["quantity"] ?? "") shares of \(review.order["symbol"] ?? "")").font(.headline)
-                    Text("Account: \(snapshot?.accounts.first(where: { $0.id == review.account_id })?.label ?? review.account_id)")
-                    Text("\(review.order["order_type"] ?? "") · Day · Regular market session")
-                    if let price = review.order["limit_price"] { Text("Limit: $\(price)") }
-                    if let terms = review.economic_terms {
-                        ForEach(terms.keys.sorted(), id: \.self) { key in Text("\(key): \(terms[key] ?? "")").font(.caption) }
-                        Text("Actual fees and debit may exceed these pre-send ceilings. They are not provider guarantees.").font(.caption)
-                    }
-                    Text("Estimated cost: $\(review.estimated_cost)\nEstimated fees: $\(review.estimated_fee)")
-                    Text("Expires \(Date(timeIntervalSince1970: review.expires_at).formatted(date: .omitted, time: .standard)). Market execution prices can change.").font(.caption)
-                    Button("Confirm and submit \(review.environment == "production" ? "real" : "sandbox") order") { run { try await confirm(review) } }
-                        .buttonStyle(MintButton()).disabled(busy || attempted || Date().timeIntervalSince1970 >= review.expires_at)
-                    Button("Dismiss review") { run {
-                        journal("request", "Dismiss Webull review", reference: review.id, accountID: review.account_id, environment: review.environment)
-                        let _: BrokerReceipt = try await api("dismiss", ["id": review.id])
-                        self.review = nil
-                    } }.disabled(busy || attempted)
-                }.card()
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Ask about your Webull account").font(.headline)
-                    TextField("Sell 3 shares of AAPL", text: $prompt)
-                    Text("Send request uses the local command parser. Ask AI sends your prompt, the selected account’s fresh portfolio snapshot, and optional journal context to your server’s AI provider. Local Ollama keeps inference on your Mac; OpenAI mode sends this context to OpenAI. Check the provider in Accounts. A trade response only fills the editable form.").font(.caption).foregroundStyle(Palette.muted)
-                    Button("Send request") { run { try await sendCommand() } }.disabled(busy || account.isEmpty)
-                    if store.aiEnabled {
-                        Button("Ask AI about this account") { run { try await askAI() } }
-                            .disabled(busy || account.isEmpty || snapshot == nil)
-                    }
-                }.card()
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Prepare a stock order").font(.headline)
-                    Picker("Action", selection: $side) { Text("Sell").tag("SELL"); Text("Buy").tag("BUY") }.pickerStyle(.segmented)
-                    TextField("Ticker, e.g. AAPL", text: $symbol).phoneSymbolInput()
-                    TextField("Number of shares", text: $quantity)
-                    TextField("Limit price (blank = market)", text: $limit)
-                    Text("Stock purchases and sales only. Review does not submit an order.").font(.caption).foregroundStyle(Palette.muted)
-                    if snapshot?.environment == "production" {
-                        Picker("Fee policy", selection: $feePolicy) {
-                            Text("Require provider cap (unsupported)").tag("require_provider_cap")
-                            Text("Accept rechecked estimate").tag("accept_rechecked_estimate")
-                        }
-                        TextField("USD fee estimate ceiling", text: $feeCeiling)
-                        TextField("USD debit admission ceiling", text: $debitCeiling)
-                        TextField("USD headroom", text: $headroom)
-                        Text("Production requires a limit price. Actual fees and debit may exceed these admission ceilings.").font(.caption)
-                    }
-                    Button("Get Webull order preview") { run {
-                        journal("request", "Request Webull preview: \(side) \(quantity) \(symbol.uppercased())")
-                        let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
-                        var body = ["account_id": account, "symbol": symbol.uppercased(), "side": side, "quantity": quantity]
-                        if !limit.isEmpty { body["limit_price"] = limit }
-                        let economics = ["fee_policy": feePolicy, "fee_estimate_ceiling": feeCeiling, "debit_admission_ceiling": debitCeiling, "headroom": headroom, "fee_currency": "USD"]
-                        if snapshot?.environment == "production" { body.merge(economics) { _, new in new } }
-                        let candidate: BrokerReview = try await api("review", body)
-                        if candidate.environment == "production" && candidate.economic_terms != economics { throw mismatchError() }
-                        try validateReview(candidate, account: body["account_id"]!, side: body["side"], symbol: body["symbol"], quantity: body["quantity"], orderType: body["limit_price"] == nil ? "MARKET" : "LIMIT", limitPrice: body["limit_price"])
-                        guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
-                        reviewBinding = binding
-                        review = candidate
-                        journal("proposal", reviewedOrderText(candidate), reference: candidate.id, accountID: candidate.account_id, environment: candidate.environment)
-                        attempted = false; receipt = nil
-                        status = "Review the account, quantity and costs before confirming."
-                    } }.buttonStyle(MintButton()).disabled(busy || account.isEmpty)
-                }.card()
             }
-            if let receipt {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(receipt.state).font(.headline)
-                    Text("Submitted is not filled. Broker details below show the latest reported result.").font(.caption)
-                    Text(receipt.detail).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                    Text("Order reference: \(receipt.client_order_id)").font(.caption2).textSelection(.enabled)
-                }.card()
-            }
-            if busy { ProgressView() }
         }
-        .onChange(of: store.aiEndpoint) { _, _ in invalidateConnection() }
-        .onChange(of: store.aiToken) { _, _ in invalidateConnection() }
-        .onChange(of: account) { _, _ in
-            portfolioAccount = nil
-            executions = nil
-        }
-    }
-
-    private func invalidateConnection() {
-        snapshot = nil; portfolioAccount = nil; executions = nil; review = nil; reviewBinding = nil; receipt = nil
-        status = "Connection changed. Load accounts again. Pending orders remain locked for reconciliation."
     }
 
     @ViewBuilder private func portfolioSection(_ snapshot: BrokerSnapshot) -> some View {
-        Text("Updated \(Date(timeIntervalSince1970: snapshot.as_of).formatted())").font(.caption).foregroundStyle(Palette.muted)
-        if snapshot.positions.isEmpty { Text("No open holdings in this account.").font(.subheadline).foregroundStyle(Palette.muted) }
-        else {
-        ScrollView(.horizontal) {
-            Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 12) {
-                GridRow { Text("Holding"); Text("Shares"); Text("Price"); Text("Avg cost"); Text("Unrealized"); Text("Currency") }.font(.caption.bold())
-                ForEach(snapshot.positions) { p in
-                    GridRow { Text(p.symbol); Text(p.quantity); Text(p.price); Text(p.cost); Text(p.gain); Text(p.currency) }.font(.system(.caption, design: .monospaced))
+        let lines = BrokerBalanceSummary.lines(snapshot.balance)
+        SectionCard {
+            if let net = lines.first(where: { $0.id == "total_net_liquidation_value" }) {
+                HeroMetric(label: "Net liquidation value", value: net.value,
+                           delta: lines.first(where: { $0.id == "total_day_profit_loss" }).map { "\($0.value) today" }, deltaTone: lines.first(where: { $0.id == "total_day_profit_loss" }).map { $0.tone } ?? .neutral)
+            } else {
+                Eyebrow("Balances")
+                Footnote("Webull did not return a summary for this account.")
+            }
+            HStack(spacing: Spacing.l) {
+                ForEach(lines.filter { ["total_cash_balance", "total_market_value", "total_unrealized_profit_loss"].contains($0.id) }) { line in
+                    MetricTile(label: line.title, value: line.value, tone: line.id == "total_unrealized_profit_loss" ? line.tone : nil)
                 }
             }
-        }.card()
         }
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Account balances").font(.headline)
-            let lines = BrokerBalanceSummary.lines(snapshot.balance)
-            if lines.isEmpty { Text("Summary unavailable; see the provider details below.").font(.caption).foregroundStyle(Palette.muted) }
-            ForEach(lines) { line in LabeledContent(line.title, value: line.value).font(.subheadline.monospacedDigit()) }
-            DisclosureGroup("Provider details") { Text(snapshot.balance).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-        }.card()
+        SectionCard(title: "Holdings") {
+            if snapshot.positions.isEmpty {
+                EmptyState(title: "No open holdings", message: "Positions in this account appear here.", icon: "chart.pie")
+            } else {
+                ForEach(snapshot.positions) { p in
+                    HoldingRow(symbol: p.symbol, detail: "\(p.quantity) shares · avg \(gatewayMoney(p.cost, currency: p.currency))",
+                               value: gatewayMoney(p.price, currency: p.currency), change: gatewayMoney(p.gain, currency: p.currency, signed: true), changeTone: deltaColorTone(p.gain))
+                }
+            }
+        }
     }
 
     @ViewBuilder private func executionSection(_ snapshot: BrokerSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Executions & evidence").font(.headline)
-            Text("APP-TRACKED ONLY — this is not your full broker history. Notional is an execution amount, not profit or loss.")
-                .font(.caption).foregroundStyle(Palette.muted)
-            Button("Load tracked executions") { run { try await loadExecutions() } }
-                .disabled(busy || account.isEmpty)
+        SectionCard(title: "Orders placed from TradePilot", footer: "Doesn’t include orders placed elsewhere. Notional is the executed amount, not profit or loss.") {
             if let executions, executions.account_id == account, executions.environment == snapshot.environment {
-                Text("As of \(Date(timeIntervalSince1970: executions.as_of).formatted()) · \(executions.scope)")
-                    .font(.caption).foregroundStyle(Palette.muted)
-                executionTable(executions)
-                Text("Filled orders: \(executions.totals.filled_orders) · Partial orders: \(executions.totals.partial_orders) · Fees \(executions.totals.fees_known ? "reported" : "not fully reported")")
-                    .font(.caption)
-                if !executions.warnings.isEmpty {
-                    ForEach(executions.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
+                HStack(spacing: Spacing.l) {
+                    MetricTile(label: "Filled", value: "\(executions.totals.filled_orders)")
+                    MetricTile(label: "Partial", value: "\(executions.totals.partial_orders)")
+                    MetricTile(label: "Fees", value: executions.totals.fees_known ? "Reported" : "Incomplete")
                 }
-            }
-        }.card()
-    }
-
-    private func executionTable(_ ledger: BrokerExecutionLedger) -> some View {
-        ScrollView(.horizontal) {
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                GridRow { Text("Symbol"); Text("Side"); Text("Filled"); Text("Avg fill"); Text("Notional"); Text("Currency"); Text("State") }.font(.caption.bold())
-                ForEach(ledger.orders) { order in
-                    GridRow {
-                        Text(order.symbol); Text(order.side); Text(order.filled_quantity); Text(order.average_fill_price)
-                        Text(order.fill_notional); Text(order.currency); Text(order.state)
-                    }.font(.system(.caption, design: .monospaced))
+                if executions.orders.isEmpty {
+                    EmptyState(title: "No orders", message: "Orders you place here will be listed.")
+                } else {
+                    ForEach(executions.orders) { order in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(order.side.capitalized) \(order.filled_quantity) \(order.symbol)").font(.subheadline.weight(.semibold))
+                                Text("avg \(gatewayMoney(order.average_fill_price, currency: order.currency)) · \(relativeTime(order.updated_at))").font(.caption).foregroundStyle(Theme.textSecondary)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(gatewayMoney(order.fill_notional, currency: order.currency)).font(.subheadline).monospacedDigit()
+                                StatusBadge.orderState(order.state)
+                            }
+                        }.padding(.vertical, Spacing.xs).accessibilityElement(children: .combine)
+                    }
                 }
+                ForEach(executions.warnings, id: \.self) { InlineNotice(kind: .warning, message: $0) }
+            } else {
+                Button("Load orders") { run { try await loadExecutions() } }.buttonStyle(SecondaryButtonStyle()).disabled(busy || account.isEmpty)
             }
         }
+    }
+
+    private var orderForm: some View {
+        SectionCard(title: "New order", footer: isLive ? "Live orders need a limit price. You’ll review Webull’s estimate before anything is placed." : "You’ll review Webull’s estimate before anything is placed.") {
+            Picker("Side", selection: $side) { Text("Sell").tag("SELL"); Text("Buy").tag("BUY") }.pickerStyle(.segmented)
+            HStack(spacing: Spacing.m) {
+                TextField("Symbol", text: $symbol).phoneSymbolInput().fieldStyle()
+                TextField("Shares", text: $quantity).phoneDecimalInput().fieldStyle()
+            }
+            TextField(isLive ? "Limit price (required)" : "Limit price (blank = market)", text: $limit).phoneDecimalInput().fieldStyle()
+            if isLive {
+                DisclosureGroup("Fee limits") {
+                    VStack(alignment: .leading, spacing: Spacing.m) {
+                        Picker("Fee policy", selection: $feePolicy) {
+                            Text("Accept a rechecked estimate").tag("accept_rechecked_estimate")
+                            Text("Require an exact cap (not offered by Webull)").tag("require_provider_cap")
+                        }.pickerStyle(.menu)
+                        TextField("Max fee (USD)", text: $feeCeiling).phoneDecimalInput().fieldStyle()
+                        TextField("Max total debit (USD)", text: $debitCeiling).phoneDecimalInput().fieldStyle()
+                        TextField("Buffer (USD)", text: $headroom).phoneDecimalInput().fieldStyle()
+                        Footnote("Pre-send checks on an estimate. Actual fees and debit can be higher.")
+                    }.padding(.top, Spacing.s)
+                }.font(.footnote.weight(.semibold))
+            }
+            Button("Review order") { run { try await requestPreview() } }
+                .buttonStyle(PrimaryButtonStyle()).disabled(busy || account.isEmpty || symbol.trimmingCharacters(in: .whitespaces).isEmpty || quantity.isEmpty || (isLive && limit.isEmpty))
+            Divider().overlay(Theme.separator)
+            HStack(spacing: Spacing.m) {
+                TextField(store.aiEnabled ? "Ask about this account" : "Type an order, e.g. Sell 3 AAPL", text: $prompt).fieldStyle()
+                Button("Ask") { run { if store.aiEnabled { try await askAI() } else { try await sendCommand() } } }
+                    .buttonStyle(SecondaryButtonStyle()).frame(width: 80).disabled(busy || account.isEmpty || prompt.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            Footnote(store.aiEnabled ? "Your question, this account’s fresh snapshot and optional journal context go to the model on your server. A trade suggestion only fills in the form above." : "Commands are parsed on this phone and only fill in the form above.")
+        }
+    }
+
+    // MARK: Helpers
+
+    private func deltaColorTone(_ text: String) -> Tone {
+        guard let value = strictDecimal(text) else { return .neutral }
+        return value > 0 ? .positive : value < 0 ? .negative : .neutral
+    }
+    private func invalidateConnection() {
+        snapshot = nil; portfolioAccount = nil; executions = nil; review = nil; reviewBinding = nil; receipt = nil
+        cancellation = nil; cancellationBinding = nil
+        status = pendingID.isEmpty ? "" : "Connection changed. The pending order stays locked until its status is checked from its original server."; statusKind = .warning
+    }
+    private func refreshCurrent() async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        do { try await load() } catch { status = error.localizedDescription; statusKind = .error; journal("error", status) }
+    }
+    private func requestPreview() async throws {
+        journal("request", "Request Webull preview: \(side) \(quantity) \(symbol.uppercased())")
+        let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+        let requestedAccount = account
+        var body = ["account_id": requestedAccount, "symbol": symbol.uppercased().trimmingCharacters(in: .whitespaces), "side": side, "quantity": quantity]
+        if !limit.isEmpty { body["limit_price"] = limit }
+        let economics = ["fee_policy": feePolicy, "fee_estimate_ceiling": feeCeiling, "debit_admission_ceiling": debitCeiling, "headroom": headroom, "fee_currency": "USD"]
+        if isLive { body.merge(economics) { _, new in new } }
+        let candidate: BrokerReview = try await api("review", body)
+        if candidate.environment == "production" && candidate.economic_terms != economics { throw mismatchError() }
+        try validateReview(candidate, account: requestedAccount, side: body["side"], symbol: body["symbol"], quantity: body["quantity"], orderType: body["limit_price"] == nil ? "MARKET" : "LIMIT", limitPrice: body["limit_price"])
+        guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
+        reviewBinding = binding
+        review = candidate
+        journal("proposal", reviewedOrderText(candidate), reference: candidate.id, accountID: candidate.account_id, environment: candidate.environment)
+        attempted = false; receipt = nil; status = ""
     }
     private func journal(_ kind: String, _ text: String, reference: String? = nil, accountID: String? = nil, environment: String? = nil) {
         store.journal.append(kind: kind, text: text, strategy: store.strategyID, accountID: accountID ?? account,
@@ -405,26 +453,13 @@ struct WebullView: View {
         switch DemoAssistant.parse(text) {
         case .portfolio:
             try await load()
-            status = "Your Webull holdings are in the table above."
+            status = ""
         case .trade(let intent):
-            if snapshot?.environment == "production" {
-                symbol = intent.symbol; side = intent.side.rawValue.uppercased()
-                quantity = NSDecimalNumber(decimal: intent.quantity).stringValue
-                status = "Complete the limit price and fee policy in the editable order form, then request a preview."
-                return
-            }
-            let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
-            let candidate: BrokerReview = try await api("review", ["account_id": account, "symbol": intent.symbol,
-                "side": intent.side.rawValue.uppercased(), "quantity": NSDecimalNumber(decimal: intent.quantity).stringValue])
-            try validateReview(candidate, account: account, side: intent.side.rawValue.uppercased(), symbol: intent.symbol, quantity: NSDecimalNumber(decimal: intent.quantity).stringValue, orderType: "MARKET")
-            guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { throw mismatchError() }
-            reviewBinding = binding
-            review = candidate
-            journal("proposal", reviewedOrderText(candidate), reference: candidate.id, accountID: candidate.account_id, environment: candidate.environment)
-            attempted = false; receipt = nil
-            status = "Review this Webull order before confirming."
+            symbol = intent.symbol; side = intent.side.rawValue.uppercased()
+            quantity = NSDecimalNumber(decimal: intent.quantity).stringValue
+            status = isLive ? "Form filled in. Add a limit price, then review." : "Form filled in. Review when ready."; statusKind = .info
         case .help:
-            status = "Try ‘show my portfolio’ or ‘sell 3 shares of AAPL’. Use the form for a limit order. No order was created."
+            status = "Couldn’t read that. Try “Sell 3 AAPL”."; statusKind = .warning
         }
         journal("assistant", status)
         prompt = ""
@@ -436,27 +471,23 @@ struct WebullView: View {
         let requestedEndpoint = store.aiEndpoint
         let requestedToken = store.aiToken
         journal("request", text, accountID: requestedAccount, environment: expectedEnvironment)
-        let context = store.useJournalContext ? store.journal.entries
-            .filter { $0.mode == "webull_" + expectedEnvironment && $0.accountID == requestedAccount }
-            .prefix(30).map { ["kind": $0.kind, "text": String($0.text.prefix(1000)),
-                "strategy": $0.strategy, "timestamp": $0.timestamp.ISO8601Format(),
-                "mode": $0.mode, "session": $0.sessionID.uuidString] } : []
+        let context = store.useJournalContext ? store.journal.context(mode: "webull_" + expectedEnvironment, account: requestedAccount) : []
         let reply = try await AIService.askWebull(endpoint: requestedEndpoint, token: requestedToken,
             prompt: text, selectedAccount: requestedAccount, expectedEnvironment: expectedEnvironment,
             strategy: store.strategyID, journal: context)
         guard store.aiEndpoint == requestedEndpoint, store.aiToken == requestedToken, account == requestedAccount,
               snapshot?.environment == expectedEnvironment,
               BrokerValidation.aiReplyMatches(reply, account: requestedAccount, environment: expectedEnvironment) else {
-            throw NSError(domain: "TradePilot", code: 22, userInfo: [NSLocalizedDescriptionKey: "The AI response did not match the selected Webull account and environment. Refresh and try again. No order was created."])
+            throw NSError(domain: "TradePilot", code: 22, userInfo: [NSLocalizedDescriptionKey: "The reply didn’t match the selected Webull account. Refresh and try again. No order was created."])
         }
         if reply.kind == "trade" {
             guard let proposedSide = reply.side?.uppercased(), ["BUY", "SELL"].contains(proposedSide),
                   let proposedSymbol = reply.symbol, !proposedSymbol.isEmpty,
-                  let proposedQuantity = reply.quantity, Decimal(string: proposedQuantity, locale: Locale(identifier: "en_US_POSIX")) != nil else {
-                throw NSError(domain: "TradePilot", code: 23, userInfo: [NSLocalizedDescriptionKey: "The AI response did not contain a complete stock proposal. No order was created."])
+                  let proposedQuantity = reply.quantity, strictDecimal(proposedQuantity, allowNegative: false) != nil else {
+                throw NSError(domain: "TradePilot", code: 23, userInfo: [NSLocalizedDescriptionKey: "The reply didn’t contain a complete stock proposal. No order was created."])
             }
             side = proposedSide; symbol = proposedSymbol; quantity = proposedQuantity; limit = ""
-            status = reply.message + " Check and edit the form, then request a separate Webull preview."
+            status = reply.message + " The form has been filled in; check it, then review."; statusKind = .info
             journal("proposal", "AI form proposal: \(proposedSide) \(proposedQuantity) \(proposedSymbol)",
                 accountID: requestedAccount, environment: expectedEnvironment)
         } else if reply.kind == "portfolio" {
@@ -465,9 +496,9 @@ struct WebullView: View {
                   snapshot?.accounts.contains(where: { $0.id == requestedAccount }) == true else {
                 throw NSError(domain: "TradePilot", code: 24, userInfo: [NSLocalizedDescriptionKey: "The refreshed portfolio no longer matched the selected account. No order was created."])
             }
-            status = reply.message
+            status = reply.message; statusKind = .info
         } else {
-            status = reply.message
+            status = reply.message; statusKind = .info
         }
         journal("assistant", status, accountID: requestedAccount, environment: expectedEnvironment)
         prompt = ""
@@ -484,8 +515,8 @@ struct WebullView: View {
         Task { @MainActor in
             defer { busy = false }
             do { try await operation() } catch {
-                status = error.localizedDescription
-                journal("error", status)
+                if review != nil { sheetStatus = error.localizedDescription } else { status = error.localizedDescription; statusKind = .error }
+                journal("error", error.localizedDescription)
             }
         }
     }
@@ -493,7 +524,7 @@ struct WebullView: View {
         let requestedAccount = account
         snapshot = try await api("state", requestedAccount.isEmpty ? [:] : ["account_id": requestedAccount])
         portfolioAccount = requestedAccount.isEmpty ? nil : requestedAccount
-        status = "Connected to Webull. Select an account and refresh its portfolio."
+        if status.hasPrefix("Couldn’t") || statusKind == .error { status = "" }
     }
     private func loadExecutions() async throws {
         guard let expectedEnvironment = snapshot?.environment, !account.isEmpty else { return }
@@ -506,30 +537,32 @@ struct WebullView: View {
         guard store.aiEndpoint == requestedEndpoint, store.aiToken == requestedToken, account == requestedAccount,
               snapshot?.environment == expectedEnvironment,
               BrokerValidation.executionLedgerMatches(ledger, account: requestedAccount, environment: expectedEnvironment) else {
-            throw NSError(domain: "TradePilot", code: 25, userInfo: [NSLocalizedDescriptionKey: "Execution evidence did not match the selected server, account, and environment. Refresh and try again."])
+            throw NSError(domain: "TradePilot", code: 25, userInfo: [NSLocalizedDescriptionKey: "The order list didn’t match the selected server, account and environment. Refresh and try again."])
         }
         executions = ledger
         journal("execution_sync", "Loaded \(ledger.orders.count) APP-TRACKED ONLY execution records; \(ledger.totals.filled_orders) filled and \(ledger.totals.partial_orders) partial.", accountID: requestedAccount, environment: expectedEnvironment)
-        status = "Tracked execution evidence loaded. Notional is not profit or loss."
     }
     private func confirm(_ review: BrokerReview) async throws {
         guard !attempted else { return }
         guard reviewBinding?.matches(endpoint: store.aiEndpoint, token: store.aiToken) == true else { throw mismatchError() }
         try validateReview(review, account: account)
+        guard let clientOrder = review.order["client_order_id"], !clientOrder.isEmpty else { throw mismatchError() }
         // Persist the recovery lock before any approval record or network access.
         pendingID = review.id
         pendingEndpoint = store.aiEndpoint
         pendingAccount = review.account_id
         pendingEnvironment = review.environment
-        pendingClientOrder = review.order["client_order_id"]!
+        pendingClientOrder = clientOrder
+        cancellation = nil; cancellationBinding = nil
         attempted = true
         journal("approval", "Approve \(reviewedOrderText(review))", reference: review.id, accountID: review.account_id, environment: review.environment)
         guard store.journal.error == nil else {
-            status = "Submission is locked for reconciliation because the journal approval could not be saved. \(store.journal.error ?? "Journal unavailable")"; return
+            self.review = nil
+            status = "Locked for reconciliation: the journal approval could not be saved. \(store.journal.error ?? "")"; statusKind = .error; return
         }
         var approval: [String: Any] = ["id": review.id, "confirmation_token": review.confirmation_token, "approved": true]
         if review.environment == "production" {
-            guard let digest = review.digest else { throw WorkspaceError(message: "Refresh this review to obtain its immutable digest.") }
+            guard let digest = review.digest else { throw WorkspaceError(message: "Request the review again to get its digest.") }
             approval["digest"] = digest
         }
         let candidate: BrokerReceipt = try await api("confirm", approval)
@@ -537,14 +570,14 @@ struct WebullView: View {
         receipt = candidate
         journal("submission_result", candidate.state + " " + candidate.detail, reference: review.id, accountID: pendingAccount, environment: pendingEnvironment)
         self.review = nil
-        status = "Request recorded. Refresh broker status to verify the outcome."
+        status = "Order sent. Check its status for the broker’s result."; statusKind = .success
     }
     private func refreshOrder() async throws {
         guard pendingEndpoint == store.aiEndpoint else {
-            status = "Restore the server URL used for this order before checking its status."; return
+            status = "This order was placed from a different server. Reconnect to it to check the status."; statusKind = .warning; return
         }
         guard !pendingAccount.isEmpty, !pendingEnvironment.isEmpty else {
-            status = "This pending order lacks the account and environment needed for safe reconciliation. It remains locked."; return
+            status = "This pending order lacks the account and environment needed for safe reconciliation. It stays locked."; statusKind = .error; return
         }
         var candidate: BrokerReceipt = try await api("status", ["id": pendingID])
         try validateReceipt(candidate)
@@ -553,11 +586,12 @@ struct WebullView: View {
             try validateReceipt(candidate)
         }
         receipt = candidate
-        if let receipt { journal("broker_status", receipt.state + " " + receipt.detail, reference: pendingID, accountID: pendingAccount, environment: pendingEnvironment) }
-        if let receipt, ["FILLED", "CANCELLED", "FAILED", "EXPIRED", "CANCELLED_REVIEW"].contains(receipt.state) {
-            pendingID = ""; pendingEndpoint = ""; pendingAccount = ""; pendingEnvironment = ""; pendingClientOrder = ""; review = nil; attempted = false
+        journal("broker_status", candidate.state + " " + candidate.detail, reference: pendingID, accountID: pendingAccount, environment: pendingEnvironment)
+        if ["FILLED", "CANCELLED", "FAILED", "EXPIRED", "CANCELLED_REVIEW"].contains(candidate.state) {
+            pendingID = ""; pendingEndpoint = ""; pendingAccount = ""; pendingEnvironment = ""; pendingClientOrder = ""
+            review = nil; attempted = false; cancellation = nil; cancellationBinding = nil
         }
-        status = "Broker status refreshed."
+        status = ""
     }
     private func validateReview(_ review: BrokerReview, account expectedAccount: String, side expectedSide: String? = nil, symbol expectedSymbol: String? = nil, quantity expectedQuantity: String? = nil, orderType: String? = nil, limitPrice: String? = nil) throws {
         guard BrokerValidation.reviewMatches(review, account: expectedAccount, environment: snapshot?.environment, side: expectedSide, symbol: expectedSymbol, quantity: expectedQuantity, orderType: orderType, limitPrice: limitPrice) else {
@@ -568,13 +602,13 @@ struct WebullView: View {
         guard receipt.id == pendingID, receipt.environment == pendingEnvironment,
               receipt.account_id == pendingAccount, !pendingClientOrder.isEmpty,
               !receipt.client_order_id.isEmpty, receipt.client_order_id == pendingClientOrder else {
-            throw NSError(domain: "TradePilot", code: 21, userInfo: [NSLocalizedDescriptionKey: "The broker receipt did not match the pending order. The order remains locked for reconciliation."])
+            throw NSError(domain: "TradePilot", code: 21, userInfo: [NSLocalizedDescriptionKey: "The broker receipt didn’t match the pending order. It stays locked for reconciliation."])
         }
     }
     private func reviewedOrderText(_ review: BrokerReview) -> String {
         "\(review.order["side"] ?? "") \(review.order["quantity"] ?? "") \(review.order["symbol"] ?? "")"
     }
     private func mismatchError() -> NSError {
-        NSError(domain: "TradePilot", code: 20, userInfo: [NSLocalizedDescriptionKey: "The broker review did not match the requested order. Request a new review."])
+        NSError(domain: "TradePilot", code: 20, userInfo: [NSLocalizedDescriptionKey: "The review didn’t match the requested order. Request a new review."])
     }
 }

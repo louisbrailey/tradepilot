@@ -34,65 +34,59 @@ struct KronosView: View {
     @State private var saved = false
 
     var body: some View {
-        Screen(title: "Kronos lab", isDemo: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("LOCAL MODEL · HISTORICAL REPLAY").font(.caption.bold()).foregroundStyle(Palette.mint)
-                Text("See how the forecast compares.").font(.title2.bold())
-                Text("Kronos reads 128 daily candles, then predicts the next 5 or 20 sessions. Those prices are held back from inference and shown afterward for comparison.").font(.subheadline).foregroundStyle(Palette.muted)
+        SubScreen(title: "Forecast replay") {
+            HStack { StatusBadge("Backtest", tone: .accent); Spacer() }
+            SectionCard(footer: "The model reads 128 daily closes and predicts the next sessions. Those sessions are held back, then shown for comparison.") {
+                HStack(spacing: Spacing.m) {
+                    TextField("Symbol", text: $ticker).phoneSymbolInput().fieldStyle().disabled(busy)
+                    Picker("Sessions", selection: $horizon) { Text("5").tag(5); Text("20").tag(20) }.pickerStyle(.segmented).frame(width: 120).disabled(busy)
+                }
+                Button(busy ? "Running…" : "Run replay") { run() }.buttonStyle(PrimaryButtonStyle()).disabled(busy || ticker.trimmingCharacters(in: .whitespaces).isEmpty)
+                if busy { HStack(spacing: Spacing.s) { ProgressView(); Text("Running the local model on your Mac…").font(.footnote).foregroundStyle(Theme.textSecondary) } }
             }
-            VStack(alignment: .leading, spacing: 14) {
-                TextField("US stock ticker", text: $ticker).phoneSymbolInput().disabled(busy)
-                Picker("Held-out sessions", selection: $horizon) {
-                    Text("5 sessions").tag(5); Text("20 sessions").tag(20)
-                }.pickerStyle(.segmented).disabled(busy)
-                Button(busy ? "Running local model…" : "Run historical replay") { run() }
-                    .buttonStyle(MintButton()).disabled(busy)
-                if busy { ProgressView("Fetching daily history and sampling 3 forecasts. Keep the Mac awake.").font(.caption) }
-                if !message.isEmpty { Text(message).font(.caption).foregroundStyle(Palette.muted) }
-            }.card()
+            OutcomeNotice(text: message, kind: report == nil && !message.isEmpty ? .error : .info)
             if let report {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("\(report.ticker) · \(report.horizon)-session replay").font(.headline)
-                    Text("Input: \(report.input_start) – \(report.input_end)").font(.caption).foregroundStyle(Palette.muted)
+                SectionCard(title: "\(report.ticker) · \(report.horizon) sessions", footer: "Input \(report.input_start) to \(report.input_end). Lower error is better; the baseline assumes the price never changes.") {
                     Chart(report.points) { point in
                         LineMark(x: .value("Session", point.date), y: .value("Close", point.predicted))
-                            .foregroundStyle(by: .value("Series", "Kronos"))
+                            .foregroundStyle(by: .value("Series", "Forecast"))
                         LineMark(x: .value("Session", point.date), y: .value("Close", point.actual))
                             .foregroundStyle(by: .value("Series", "Actual"))
                         LineMark(x: .value("Session", point.date), y: .value("Close", point.baseline))
                             .foregroundStyle(by: .value("Series", "Unchanged"))
                     }
-                    .chartForegroundStyleScale(["Kronos": Palette.mint, "Actual": Color.orange, "Unchanged": Color.gray])
-                    .chartYScale(domain: .automatic(includesZero: false)).frame(height: 230)
-                    LabeledContent("Kronos close-price error", value: String(format: "$%.3f MAE", report.mae))
-                    LabeledContent("Unchanged-price error", value: String(format: "$%.3f MAE", report.baseline_mae))
-                    Text(report.mae < report.baseline_mae ? "Kronos has lower error in this window." : "The unchanged-price baseline matches or beats Kronos in this window.")
-                        .font(.caption).foregroundStyle(Palette.muted)
-                }.card()
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Daily closes").font(.headline)
-                    Text("Date · forecast · actual · sample range").font(.caption).foregroundStyle(Palette.muted)
-                    ForEach(report.points) { p in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(p.date).font(.caption.bold())
-                            Text(String(format: "$%.2f · $%.2f · $%.2f–$%.2f", p.predicted, p.actual, p.low, p.high))
-                                .font(.caption.monospacedDigit())
-                        }
+                    .chartForegroundStyleScale(["Forecast": Theme.accent, "Actual": Theme.textPrimary, "Unchanged": Theme.textTertiary])
+                    .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { _ in AxisValueLabel().foregroundStyle(Theme.textTertiary) } }
+                    .chartYAxis { AxisMarks { _ in AxisGridLine().foregroundStyle(Theme.separator); AxisValueLabel().foregroundStyle(Theme.textTertiary) } }
+                    .chartYScale(domain: .automatic(includesZero: false)).frame(height: 220)
+                    HStack(spacing: Spacing.l) {
+                        MetricTile(label: "Forecast error", value: String(format: "$%.2f", report.mae), tone: report.mae < report.baseline_mae ? .positive : nil)
+                        MetricTile(label: "Unchanged baseline", value: String(format: "$%.2f", report.baseline_mae))
                     }
-                }.card()
-                Text("\(report.source) · \(report.model) · 3 samples · seed \(report.seed)").font(.caption).foregroundStyle(Palette.muted)
-                Text(report.notice).font(.caption).foregroundStyle(Palette.muted)
-                Button(saved ? "Saved to research journal" : "Save research to journal") { save(report) }
-                    .buttonStyle(MintButton()).disabled(saved)
-            } else {
-                Text("Research only. This does not connect a brokerage or place orders. Model training overlap is unverified; a good historical fit is not proof of future returns.").font(.caption).foregroundStyle(Palette.muted)
+                    Footnote(report.mae < report.baseline_mae ? "The forecast beat the unchanged-price baseline in this window." : "The unchanged-price baseline matched or beat the forecast in this window.")
+                }
+                SectionCard(title: "Daily closes") {
+                    ForEach(report.points) { p in
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(p.date).font(.footnote).foregroundStyle(Theme.textSecondary)
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(String(format: "Forecast $%.2f · Actual $%.2f", p.predicted, p.actual)).font(.footnote).monospacedDigit()
+                                Text(String(format: "Range $%.2f–$%.2f", p.low, p.high)).font(.caption).monospacedDigit().foregroundStyle(Theme.textTertiary)
+                            }
+                        }.padding(.vertical, Spacing.xs).accessibilityElement(children: .combine)
+                    }
+                }
+                Button(saved ? "Saved to journal" : "Save to journal") { save(report) }.buttonStyle(SecondaryButtonStyle()).disabled(saved)
+                Footnote("\(report.notice) Model \(report.model), \(report.samples) samples, seed \(report.seed), data from \(report.source).")
+            } else if !busy {
+                Footnote("Research only. This never connects to a brokerage or places orders, and a good historical fit is not proof of future returns.")
             }
         }
-        .onChange(of: store.aiEndpoint) { _, _ in clear() }
-        .onChange(of: store.aiToken) { _, _ in clear() }
+        .onConnectionChange(store) { clear() }
     }
 
-    private func clear() { report = nil; saved = false; message = "Connection changed. Run a new replay." }
+    private func clear() { report = nil; saved = false; message = "" }
     private func run() {
         let symbol = ticker.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let sessions = horizon
@@ -104,9 +98,9 @@ struct KronosView: View {
                 let result: KronosReport = try await WorkspaceAPI.request("v1/kronos/replay",
                     body: KronosRequest(ticker: symbol, horizon: sessions), endpoint: binding.endpoint, token: binding.token)
                 guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
-                guard result.matches(symbol: symbol, sessions: sessions) else { throw WorkspaceError(message: "Forecast response did not match this replay.") }
+                guard result.matches(symbol: symbol, sessions: sessions) else { throw WorkspaceError(message: "The forecast didn’t match this request.") }
                 report = result
-                message = "Completed " + workspaceDate(result.generated_at)
+                message = ""
             } catch {
                 if binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription }
             }
@@ -116,6 +110,6 @@ struct KronosView: View {
         let rows = result.points.map { String(format: "%@: predicted %.4f, actual %.4f, sample range %.4f–%.4f", $0.date, $0.predicted, $0.actual, $0.low, $0.high) }.joined(separator: "\n")
         store.journal.append(kind: "research", text: "Kronos \(result.ticker), \(result.horizon) held-out sessions; input ends \(result.input_end). Model \(result.model); seed \(result.seed). MAE \(result.mae); unchanged baseline MAE \(result.baseline_mae).\n\(rows)\n\(result.notice)", strategy: "kronos", accountID: "none", reference: result.id, holdings: [], mode: "historical_research")
         saved = store.journal.error == nil
-        if !saved { message = "The journal could not save this research. Check Research → Journal." }
+        if !saved { message = "The journal could not save this research." }
     }
 }

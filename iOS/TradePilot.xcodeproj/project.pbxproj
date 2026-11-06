@@ -15,6 +15,7 @@
 		A00000000000000000000037 /* TradePilot/WebullView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* TradePilot/WebullView.swift */; };
 		A00000000000000000000039 /* WorkspaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038; };
 		A00000000000000000000041 /* KronosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000040; };
+		A00000000000000000000043 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000042; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +27,7 @@
 		A00000000000000000000036 /* TradePilot/WebullView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/WebullView.swift; sourceTree = "<group>"; };
 		A00000000000000000000038 /* WorkspaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/WorkspaceViews.swift; sourceTree = "<group>"; };
 		A00000000000000000000040 /* KronosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/KronosView.swift; sourceTree = "<group>"; };
+		A00000000000000000000042 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/DesignSystem.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,6 +52,7 @@
 				A00000000000000000000036 /* TradePilot/WebullView.swift */,
 				A00000000000000000000038 /* WorkspaceViews.swift */,
 				A00000000000000000000040 /* KronosView.swift */,
+				A00000000000000000000042 /* DesignSystem.swift */,
 				A00000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -142,6 +145,7 @@
 				A00000000000000000000037 /* TradePilot/WebullView.swift in Sources */,
 				A00000000000000000000039 /* WorkspaceViews.swift in Sources */,
 				A00000000000000000000041 /* KronosView.swift in Sources */,
+				A00000000000000000000043 /* DesignSystem.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -178,7 +182,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
                 CODE_SIGN_ENTITLEMENTS = TradePilot/TradePilot.entitlements;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = ANWNGW59GP;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = TradePilot;
@@ -187,7 +191,7 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				MARKETING_VERSION = 0.3.0;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.louisbrailey.TradePilot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -202,7 +206,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
                 CODE_SIGN_ENTITLEMENTS = TradePilot/TradePilot.entitlements;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = ANWNGW59GP;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = TradePilot;
@@ -211,7 +215,7 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				MARKETING_VERSION = 0.3.0;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.louisbrailey.TradePilot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

@@ -46,17 +46,17 @@ struct AIRequest: Encodable {
     let mode = "demo"
 }
 
-private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
+/// The gateway answers errors as {"error": text}; show that text when present.
+func gatewayError(_ data: Data, _ response: URLResponse, fallback: String) -> NSError {
+    let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+    let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
+    return NSError(domain: "TradePilot", code: code, userInfo: [NSLocalizedDescriptionKey: message ?? "\(fallback) (HTTP \(code))"])
 }
 
 enum AIService {
     static func setup(endpoint: String, token: String) async throws -> GatewaySetup {
         guard token.count >= 32 else {
-            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Save your private server address and access token first."])
+            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connect to your server in Settings first."])
         }
         let base = try ConnectionSettings.authorizedEndpoint(endpoint)
         var request = URLRequest(url: base.appendingPathComponent("v1/setup"))
@@ -68,7 +68,7 @@ enum AIService {
         defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw NSError(domain: "TradePilot", code: 2, userInfo: [NSLocalizedDescriptionKey: "Connection check failed. Check your server address, saved pairing, and access token."])
+            throw gatewayError(data, response, fallback: "Couldn’t reach your server. Check the address, pairing and token.")
         }
         return try JSONDecoder().decode(GatewaySetup.self, from: data)
     }
@@ -77,7 +77,7 @@ enum AIService {
                           expectedEnvironment: String, strategy: String,
                           journal: [[String: String]]) async throws -> AIReply {
         guard !token.isEmpty else {
-            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Set a valid HTTPS AI server URL and its access token in Accounts."])
+            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connect to your server in Settings first."])
         }
         let base = try ConnectionSettings.authorizedEndpoint(endpoint)
         var request = URLRequest(url: base.appendingPathComponent("v1/assistant"))
@@ -98,7 +98,7 @@ enum AIService {
 
     static func research(endpoint: String, token: String, ticker: String) async throws -> String {
         guard !token.isEmpty else {
-            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Configure an HTTPS server URL and access token in Accounts first."])
+            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connect to your server in Settings first."])
         }
         let base = try ConnectionSettings.authorizedEndpoint(endpoint)
         var request = URLRequest(url: base.appendingPathComponent("v1/research"))
@@ -110,14 +110,14 @@ enum AIService {
         defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw NSError(domain: "TradePilot", code: 3, userInfo: [NSLocalizedDescriptionKey: "Research unavailable. Check the server token, ticker and Massive configuration."])
+            throw gatewayError(data, response, fallback: "Research isn’t available right now.")
         }
         return try JSONDecoder().decode([String: String].self, from: data)["summary"] ?? "No research returned."
     }
 
     static func ask(endpoint: String, token: String, prompt: String, holdings: [Holding], accounts: [Account], selectedAccount: String, strategy: String, researchTicker: String?, journal: [[String: String]]) async throws -> AIReply {
         guard !token.isEmpty else {
-            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Set a valid HTTPS AI server URL and its access token in Accounts."])
+            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connect to your server in Settings first."])
         }
         let base = try ConnectionSettings.authorizedEndpoint(endpoint)
         var request = URLRequest(url: base.appendingPathComponent("v1/assistant"))
@@ -130,7 +130,7 @@ enum AIService {
         defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw NSError(domain: "TradePilot", code: 2, userInfo: [NSLocalizedDescriptionKey: "The AI server did not return a usable response. Check its configuration and token. No order was created."])
+            throw gatewayError(data, response, fallback: "The assistant didn’t answer. No order was created.")
         }
         return try JSONDecoder().decode(AIReply.self, from: data)
     }
@@ -186,12 +186,12 @@ enum ConnectionSettings {
     static func validatedEndpoint(_ endpoint: String) throws -> URL {
         guard let url = URL(string: endpoint), url.scheme?.lowercased() == "https", url.host != nil,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else {
-            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Configure a valid HTTPS server URL in Accounts first."])
+            throw NSError(domain: "TradePilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connect to your server in Settings first."])
         }
         return url
     }
     static func origin(for url: URL) -> String {
-        let host = url.host!.lowercased()
+        let host = (url.host ?? "").lowercased()
         return "https://\(host):\(url.port ?? 443)"
     }
     private static func saveTokenAndEndpoint(endpoint: String, token: String) throws {
@@ -239,7 +239,8 @@ extension ConnectionSettings {
             else { try? FileManager.default.removeItem(at: certificateURL) }
             throw error
         }
-        try FileManager.default.removeItem(at: file)
+        // The pairing is saved; a leftover file is not a failure.
+        try? FileManager.default.removeItem(at: file)
     }
 }
 
@@ -368,7 +369,7 @@ extension AIService {
         defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 200_000 else {
-            throw NSError(domain: "TradePilot", code: 22, userInfo: [NSLocalizedDescriptionKey: "The recorded evaluation is unavailable. Check the private gateway connection and installed research report."])
+            throw gatewayError(data, response, fallback: "The recorded backtest isn’t available.")
         }
         let report = try JSONDecoder().decode(RecordedEvaluation.self, from: data)
         guard EvaluationValidation.isValid(report) else {

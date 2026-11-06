@@ -4,7 +4,7 @@ Version `prospective-paper-v1` is fixed before activation. It runs the existing 
 
 ## Start, schedule and stop
 
-Open **Overview → Automated paper strategies**, or the link in Paper trading. Review the fixed protocol and start the three experiments. Starting explicitly authorizes their future paper fills without per-order prompts. Real broker and manual paper confirmation rules are unchanged. The gateway’s background worker checks every minute; the phone app can be closed. Keep the Mac awake and the gateway running.
+Open **Accounts → Automated strategies** (also under Research → Tools). Review the fixed protocol and start the three experiments. Starting explicitly authorizes their future paper fills without per-order prompts. Real broker and manual paper confirmation rules are unchanged. The gateway’s background worker checks every minute; the phone app can be closed. Keep the Mac awake and the gateway running.
 
 Each session is evaluated at or after **20:15 America/New_York**, with a window ending at midnight. This uses the pinned [NYSE 2026–2028 calendar](https://www.nyse.com/trade/hours-calendars), including holidays. Early-close sessions are also evaluated at 20:15. Unsupported calendar years fail closed. An unexpected market closure or missing bar halts rather than fabricating an observation.
 

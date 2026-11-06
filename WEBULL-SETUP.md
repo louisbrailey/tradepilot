@@ -5,7 +5,7 @@ TradePilot includes a private backend adapter for Webull account/position reads,
 ## Current status — November 4, 2026
 
 - Webull is connected on the physical USB iPhone using the existing private gateway credentials and saved authorization. No new keys were needed.
-- In TradePilot → Accounts → Open Webull account, Load accounts returned the authorized Individual Cash account. Selecting it and tapping Refresh portfolio loaded current USD balance details and an empty holdings table successfully. This is direct production read-access proof, separate from the automated fake-provider tests.
+- In TradePilot → Accounts → Webull, loading the account returned the authorized Individual Cash account. Selecting it and tapping Refresh portfolio loaded current USD balance details and an empty holdings table successfully. This is direct production read-access proof, separate from the automated fake-provider tests.
 - The phone has Developer Mode enabled, the development profile trusted, and the current app installed and paired to `louiss-macbook-pro-8.local`.
 - Live submission remains disabled. No real order, cancellation, transfer or order preview was performed during setup.
 - To refresh later, open the Webull screen, select the account and tap Refresh portfolio. The Mac must remain awake and reachable from the phone.
@@ -58,7 +58,7 @@ The deployed source supports long-stock LIMIT/DAY production reviews and separat
 
 The iOS client accepts HTTPS, stores the gateway token in Keychain, and can pin the paired local certificate. The certificate-pairing flow is implemented and pairing import succeeds in the simulator. Complete the phone test only after the physical device is paired and available.
 
-In Accounts → Gateway connection & AI, enter only the private HTTPS server URL and app access token. Never enter the Webull app secret, private key, Massive key, or OpenAI key on the phone. Pairing files and credentials must remain outside source archives.
+In Accounts → Settings, enter only the private HTTPS server URL and app access token. Never enter the Webull app secret, private key, Massive key, or OpenAI key on the phone. Pairing files and credentials must remain outside source archives.
 
 ## Install on a physical iPhone
 

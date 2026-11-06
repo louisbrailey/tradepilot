@@ -136,6 +136,9 @@ class WebullService:
             CREATE TABLE IF NOT EXISTS audit (
                 id INTEGER PRIMARY KEY, at REAL NOT NULL, review_id TEXT,
                 event TEXT NOT NULL, detail TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS cancellation_reviews (
+                id TEXT PRIMARY KEY, parent_id TEXT, digest TEXT, token_hash TEXT,
+                expires REAL, state TEXT, summary TEXT);
         """)
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(reviews)")}
         if "observed_filled_quantity" not in columns:

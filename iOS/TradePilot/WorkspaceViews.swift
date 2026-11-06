@@ -11,7 +11,7 @@ struct WorkspaceError: LocalizedError { let message: String; var errorDescriptio
 enum WorkspaceAPI {
     static func request<T: Decodable & Sendable, B: Encodable & Sendable>(_ path: String, body: B,
         endpoint: String, token: String) async throws -> T {
-        guard token.count >= 32 else { throw WorkspaceError(message: "Save your private gateway connection in Accounts first.") }
+        guard token.count >= 32 else { throw WorkspaceError(message: "Connect to your server in Settings first.") }
         let base = try ConnectionSettings.authorizedEndpoint(endpoint)
         var request = URLRequest(url: base.appendingPathComponent(path))
         request.httpMethod = "POST"; request.timeoutInterval = 120
@@ -23,7 +23,7 @@ enum WorkspaceAPI {
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             let error = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
-            throw WorkspaceError(message: error ?? "Gateway request failed. Refresh saved state before trying another order.")
+            throw WorkspaceError(message: error ?? "Couldn’t reach your server (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)). Refresh before placing another order.")
         }
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -53,18 +53,11 @@ struct PaperSnapshot: Decodable, Sendable {
     let max_drawdown: String; let mark_to_market_notice: String
     let positions: [PaperPosition]; let reviews: [PaperReview]; let orders: [PaperReview]; let journal: [PaperEvent]
 }
-func workspaceMoney(_ value: String) -> String {
-    guard let number = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")), !number.isNaN else { return "Unavailable" }
-    return money(number)
-}
-func workspaceDate(_ value: Double) -> String { Date(timeIntervalSince1970: value).formatted(date: .abbreviated, time: .shortened) }
+func workspaceMoney(_ value: String, signed: Bool = false) -> String { gatewayMoney(value, signed: signed) }
+func workspaceDate(_ value: Double) -> String { gatewayDate(value) }
 
 enum PaperValidation {
-    static func decimal(_ text: String) -> Decimal? {
-        guard text.count <= 64, text.range(of: "^-?[0-9]+(?:\\.[0-9]+)?$", options: .regularExpression) != nil,
-              let value = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")), !value.isNaN else { return nil }
-        return value
-    }
+    static func decimal(_ text: String) -> Decimal? { strictDecimal(text) }
     static func reviewMatches(_ review: PaperReview, request: PaperIntentRequest, now: Double = Date().timeIntervalSince1970) -> Bool {
         guard review.mode == "paper", review.status == "REVIEW", !review.id.isEmpty, !(review.token ?? "").isEmpty,
               review.symbol == request.symbol, review.side == request.side, ["buy", "sell"].contains(review.side),
@@ -85,158 +78,6 @@ enum PaperValidation {
     }
 }
 
-struct PaperTradingView: View {
-    @Environment(AppStore.self) private var store
-    @State private var snapshot: PaperSnapshot?
-    @State private var review: PaperReview?
-    @State private var reviewBinding: BrokerConnectionBinding?
-    @State private var symbol = "AAPL"
-    @State private var side = "buy"
-    @State private var quantity = "1"
-    @State private var command = ""
-    @State private var note = ""
-    @State private var status = ""
-    @State private var busy = false
-    @State private var requestID = UUID().uuidString
-    var body: some View {
-        Screen(title: "Paper trading", isDemo: false) {
-            NavigationLink("Automated paper strategies") { AutomatedPaperView() }
-            Text("PAPER · NO REAL MONEY").font(.caption.bold()).foregroundStyle(Palette.mint)
-            Text("A persistent $10,000 practice account. Orders simulate a fill at the last completed daily close with 10 bps slippage. Prices are delayed; these are not broker fills or proof of achievable returns.").font(.subheadline).foregroundStyle(Palette.muted)
-            HStack {
-                Button("Refresh account") { load() }
-                Spacer()
-                Button("Update valuations") { load(mark: true) }
-            }.disabled(busy)
-            if let snapshot {
-                VStack(alignment: .leading, spacing: 10) {
-                    LabeledContent("Paper equity", value: workspaceMoney(snapshot.equity))
-                    LabeledContent("Cash", value: workspaceMoney(snapshot.cash))
-                    LabeledContent("Realized result", value: workspaceMoney(snapshot.realized_pnl))
-                    Text(snapshot.mark_to_market_notice).font(.caption).foregroundStyle(Palette.muted)
-                    Text("Valuations update on request; no background trading.").font(.caption).foregroundStyle(Palette.muted)
-                }.card()
-                if !snapshot.positions.isEmpty {
-                    ScrollView(.horizontal) {
-                        Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 12) {
-                            GridRow { Text("Symbol"); Text("Units"); Text("Value"); Text("Unrealized"); Text("Reference date") }.font(.caption.bold())
-                            ForEach(snapshot.positions) { p in
-                                GridRow { Text(p.symbol); Text(p.quantity); Text(workspaceMoney(p.market_value)); Text(workspaceMoney(p.unrealized_pnl)); Text(workspaceDate(p.reference_as_of)) }.font(.caption.monospacedDigit())
-                            }
-                        }
-                    }.card()
-                }
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Prepare a paper order").font(.headline)
-                TextField("Try: buy 3 shares of AAPL", text: $command)
-                Button("Use command in form") {
-                    switch DemoAssistant.parse(command) {
-                    case .trade(let intent): symbol = intent.symbol; side = intent.side.rawValue; quantity = units(intent.quantity); status = "Check the form, then request a paper review."
-                    default: status = "Use one explicit buy or sell with a quantity and stock symbol."
-                    }
-                }
-                TextField("US stock ticker", text: $symbol).phoneSymbolInput()
-                Picker("Side", selection: $side) { Text("Buy").tag("buy"); Text("Sell").tag("sell") }.pickerStyle(.segmented)
-                TextField("Shares", text: $quantity).phoneSymbolInput()
-                Button("Review paper order") { prepare() }.buttonStyle(MintButton()).disabled(busy)
-            }.card()
-            if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Trade journal").font(.headline)
-                TextField("Thesis, observation or lesson", text: $note, axis: .vertical).lineLimit(2...5)
-                Button("Save reflection") { saveNote() }.disabled(busy || note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                if let snapshot {
-                    ForEach(snapshot.journal.prefix(30)) { event in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(event.kind.capitalized) · \(workspaceDate(event.at))").font(.caption.bold())
-                            if !event.summary.isEmpty { Text(event.summary).font(.caption) }
-                        }
-                    }
-                }
-            }.card()
-        }
-        .task { if snapshot == nil { load() } }
-        .onChange(of: symbol) { _, _ in if review == nil { requestID = UUID().uuidString } }
-        .onChange(of: side) { _, _ in if review == nil { requestID = UUID().uuidString } }
-        .onChange(of: quantity) { _, _ in if review == nil { requestID = UUID().uuidString } }
-        .onChange(of: store.aiEndpoint) { _, _ in clearConnection() }
-        .onChange(of: store.aiToken) { _, _ in clearConnection() }
-        // A dismissed or confirmed review never reuses its client_id for a later request.
-        .sheet(item: $review, onDismiss: { requestID = UUID().uuidString }) { proposed in
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("Confirm paper order").font(.title.bold())
-                        Text("\(proposed.side.uppercased()) \(proposed.quantity) \(proposed.symbol)").font(.title2.monospaced())
-                        LabeledContent("Simulated unit price", value: workspaceMoney(proposed.fill_price))
-                        LabeledContent("Cash change", value: workspaceMoney(proposed.cash_change))
-                        Text("Reference: \(workspaceMoney(proposed.reference_price)) · \(workspaceDate(proposed.reference_as_of))").font(.caption)
-                        Text(proposed.source).font(.caption)
-                        Text("This changes only your paper account. The reference is delayed and may differ substantially from a current executable price.").foregroundStyle(Palette.muted)
-                        Button("Confirm paper order") { confirm(proposed) }.buttonStyle(MintButton()).disabled(busy)
-                        Button("Dismiss review") { review = nil; requestID = UUID().uuidString }.disabled(busy)
-                        Text(status).font(.caption)
-                    }.padding(24)
-                }.background(Palette.background)
-            }.interactiveDismissDisabled(busy)
-        }
-    }
-    private func binding() -> BrokerConnectionBinding { BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken) }
-    private func current(_ b: BrokerConnectionBinding) -> Bool { b.matches(endpoint: store.aiEndpoint, token: store.aiToken) }
-    private func clearConnection() { snapshot = nil; review = nil; reviewBinding = nil; status = "Connection changed. Refresh the paper account."; requestID = UUID().uuidString }
-    private func load(mark: Bool = false) {
-        guard !busy else { return }; busy = true
-        let b = binding()
-        Task { defer { busy = false }
-            do {
-                let result: PaperSnapshot = try await WorkspaceAPI.request(mark ? "v1/paper/mark" : "v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
-                guard current(b), result.mode == "paper" else { return }
-                snapshot = result; status = mark ? "Saved updated paper valuations." : "Paper account loaded."
-            } catch { if current(b) { status = error.localizedDescription } }
-        }
-    }
-    private func prepare() {
-        guard !busy else { return }; busy = true
-        let b = binding()
-        let intent = PaperIntentRequest(symbol: symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), side: side, quantity: quantity, client_id: requestID)
-        Task { defer { busy = false }
-            do {
-                let result: PaperReview = try await WorkspaceAPI.request("v1/paper/review", body: intent, endpoint: b.endpoint, token: b.token)
-                guard current(b) else { return }
-                guard PaperValidation.reviewMatches(result, request: intent) else { throw WorkspaceError(message: "Paper review did not match the requested terms. Refresh saved state.") }
-                review = result; reviewBinding = b; status = "Nothing changes until you confirm."
-            } catch { if current(b) { status = error.localizedDescription; requestID = UUID().uuidString } }
-        }
-    }
-    private func confirm(_ proposed: PaperReview) {
-        guard !busy, let b = reviewBinding, current(b), let token = proposed.token else { return }
-        busy = true; requestID = UUID().uuidString  // Retries use proposed.id/token, not the form's client_id.
-        Task { defer { busy = false }
-            do {
-                let receipt: PaperReview = try await WorkspaceAPI.request("v1/paper/confirm", body: PaperApproval(id: proposed.id, token: token), endpoint: b.endpoint, token: b.token)
-                guard current(b) else { return }
-                guard PaperValidation.receiptMatches(receipt, review: proposed) else { throw WorkspaceError(message: "Unexpected receipt. Refresh the paper account before another order.") }
-                store.journal.append(kind: "paper_fill", text: "Paper \(receipt.side) \(receipt.quantity) \(receipt.symbol) at \(receipt.fill_price). Delayed reference simulation.", strategy: store.strategyID, accountID: "paper", holdings: [], mode: "paper")
-                review = nil; requestID = UUID().uuidString
-                let result: PaperSnapshot = try await WorkspaceAPI.request("v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
-                if current(b) { snapshot = result; status = "Paper order filled and saved. No real order was sent." }
-            } catch { if current(b) { status = "\(error.localizedDescription) Retry this same confirmation or refresh the account; do not assume failure." } }
-        }
-    }
-    private func saveNote() {
-        guard !busy else { return }; busy = true
-        let b = binding(), text = note
-        Task { defer { busy = false }
-            do {
-                let _: PaperEvent = try await WorkspaceAPI.request("v1/paper/note", body: ["text": text], endpoint: b.endpoint, token: b.token)
-                let result: PaperSnapshot = try await WorkspaceAPI.request("v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
-                if current(b) { snapshot = result; note = ""; status = "Reflection saved." }
-            } catch { if current(b) { status = error.localizedDescription } }
-        }
-    }
-}
-
 struct CoinbaseAccount: Decodable, Sendable, Identifiable {
     let id: String; let currency: String; let name: String; let available: String; let hold: String; let total: String
     var hasZeroBalance: Bool {
@@ -249,56 +90,6 @@ struct CoinbaseAccount: Decodable, Sendable, Identifiable {
 struct CoinbaseSnapshot: Decodable, Sendable {
     let broker: String; let read_only: Bool; let as_of: Double; let accounts: [CoinbaseAccount]
 }
-struct CoinbaseView: View {
-    @Environment(AppStore.self) private var store
-    @State private var snapshot: CoinbaseSnapshot?
-    @State private var message = ""
-    @State private var busy = false
-    @State private var showEmptyAccounts = false
-    private var visibleAccounts: [CoinbaseAccount] {
-        (snapshot?.accounts ?? []).filter { showEmptyAccounts || !$0.hasZeroBalance }
-            .sorted { $0.currency == $1.currency ? $0.id < $1.id : $0.currency < $1.currency }
-    }
-    var body: some View {
-        Screen(title: "Coinbase", isDemo: false) {
-            NavigationLink("Access and order history") { CoinbaseActionsView() }
-            Text("ACCOUNT BALANCES").font(.caption.bold()).foregroundStyle(Palette.mint)
-            Text("View asset balances through your private gateway. Amounts are in each asset’s own units, not a combined dollar value.").font(.subheadline).foregroundStyle(Palette.muted)
-            Button(busy ? "Loading…" : "Load Coinbase accounts") { refresh() }.buttonStyle(MintButton()).disabled(busy)
-            if let snapshot {
-                Text("Updated \(workspaceDate(snapshot.as_of))").font(.caption)
-                Toggle("Show zero balances", isOn: $showEmptyAccounts).tint(Palette.mint)
-                Text("\(visibleAccounts.count) of \(snapshot.accounts.count) asset accounts").font(.caption).foregroundStyle(Palette.muted)
-                if snapshot.accounts.isEmpty { Text("No accounts returned by Coinbase.") }
-                else if visibleAccounts.isEmpty { Text("All returned balances are zero. Turn on Show zero balances to inspect them.").font(.subheadline) }
-                ForEach(visibleAccounts) { a in
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack { Text(a.currency).font(.headline); Spacer(); Text(a.name).font(.caption).foregroundStyle(Palette.muted) }
-                        LabeledContent("Total", value: a.total)
-                        LabeledContent("Available", value: a.available)
-                        LabeledContent("On hold", value: a.hold)
-                    }.font(.subheadline.monospacedDigit()).textSelection(.enabled).card()
-                }
-            }
-            Text(message).font(.caption).textSelection(.enabled)
-        }
-        .onChange(of: store.aiEndpoint) { _, _ in snapshot = nil; message = "Connection changed; reload accounts." }
-        .onChange(of: store.aiToken) { _, _ in snapshot = nil; message = "Connection changed; reload accounts." }
-    }
-    private func refresh() {
-        guard !busy else { return }
-        busy = true; snapshot = nil
-        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
-        Task { defer { busy = false }
-            do {
-                let result: CoinbaseSnapshot = try await WorkspaceAPI.request("v1/coinbase/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
-                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
-                guard result.broker == "coinbase", result.read_only else { throw WorkspaceError(message: "Unexpected Coinbase response.") }
-                snapshot = result; message = ""
-            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
-        }
-    }
-}
 
 struct StrategyMetrics: Decodable, Sendable {
     let return_pct: Double; let max_drawdown_pct: Double; let benchmark_price_return_pct: Double; let fills: Int
@@ -309,59 +100,6 @@ struct StrategyResult: Decodable, Sendable, Identifiable {
     let strategy: String; let rule: String; let validation: StrategyStage; let final: StrategyStage
 }
 struct StrategyComparison: Decodable, Sendable { let ticker: String; let evidence: String; let scope: String; let strategies: [StrategyResult] }
-struct StrategyComparisonView: View {
-    @Environment(AppStore.self) private var store
-    @State private var ticker = "AAPL"
-    @State private var result: StrategyComparison?
-    @State private var message = ""
-    @State private var busy = false
-    var body: some View {
-        Screen(title: "Strategy lab", isDemo: false) {
-            Text("EXPLORATORY · DAILY STOCK DATA").font(.caption.bold()).foregroundStyle(Palette.mint)
-            Text("Compare fixed trend, breakout and mean-reversion rules with costs. Historical results are research, not a recommendation or permission to trade.").font(.subheadline).foregroundStyle(Palette.muted)
-            TextField("US stock ticker", text: $ticker).phoneSymbolInput()
-            Button(busy ? "Evaluating…" : "Compare strategies") { compare() }.buttonStyle(MintButton()).disabled(busy)
-            Text(message).font(.caption)
-            if let result {
-                Text(result.scope).font(.caption).foregroundStyle(Palette.muted)
-                ForEach(result.strategies) { strategy in
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(strategy.strategy.replacingOccurrences(of: "_", with: " ").capitalized).font(.headline)
-                        Text(strategy.rule).font(.caption)
-                        Text("Validation · 10 bps per side").font(.caption.bold())
-                        metrics(strategy.validation.baseline)
-                        Text("Final period · 10 bps per side").font(.caption.bold())
-                        metrics(strategy.final.baseline)
-                        Text("Final period cost sensitivity").font(.caption.bold())
-                        ForEach(["0", "10", "25", "50"], id: \.self) { cost in
-                            if let m = strategy.final.cost_scenarios[cost] {
-                                LabeledContent("\(cost) bps per side", value: String(format: "%.2f%%", m.return_pct)).font(.caption.monospacedDigit())
-                            }
-                        }
-                    }.card()
-                }
-            }
-        }
-        .onChange(of: store.aiEndpoint) { _, _ in result = nil }
-        .onChange(of: store.aiToken) { _, _ in result = nil }
-    }
-    @ViewBuilder private func metrics(_ m: StrategyMetrics) -> some View {
-        LabeledContent("Strategy / benchmark", value: String(format: "%.2f%% / %.2f%%", m.return_pct, m.benchmark_price_return_pct)).font(.caption.monospacedDigit())
-        LabeledContent("Maximum drawdown / fills", value: String(format: "%.2f%% / %d", m.max_drawdown_pct, m.fills)).font(.caption.monospacedDigit())
-    }
-    private func compare() {
-        busy = true; result = nil
-        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), symbol = ticker.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        Task { defer { busy = false }
-            do {
-                let report: StrategyComparison = try await WorkspaceAPI.request("v1/strategies", body: ["ticker": symbol], endpoint: b.endpoint, token: b.token)
-                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
-                guard report.ticker == symbol, report.evidence == "exploratory_previously_observed" else { throw WorkspaceError(message: "Unexpected evaluation provenance.") }
-                result = report; message = "\(symbol) · independent portfolios per period; no automatic strategy selection."
-            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
-        }
-    }
-}
 
 // Typed broker actions stay outside the assistant tool path. The saved server
 // review is immutable; changing any field invalidates the local approval.
@@ -397,201 +135,6 @@ struct AccessOrder: Decodable, Sendable, Identifiable {
 }
 struct AccessOrders: Decodable, Sendable { let orders: [AccessOrder] }
 
-struct CoinbaseActionsView: View {
-    @Environment(AppStore.self) private var store
-    @State private var capabilities: AccessCapabilities?
-    @State private var account = ""
-    @State private var action = "limit_order"
-    @State private var feePolicy = "require_provider_cap"
-    @State private var feeCeiling = ""
-    @State private var debitCeiling = ""
-    @State private var headroom = ""
-    @State private var feeCurrency = ""
-    @State private var product = ""
-    @State private var side = "BUY"
-    @State private var quantity = ""
-    @State private var price = ""
-    @State private var destination = ""
-    @State private var currency = ""
-    @State private var amount = ""
-    @State private var orderID = ""
-    @State private var clientID = UUID().uuidString
-    @State private var review: AccessReview?
-    @State private var reviewedIntent: [String: String]?
-    @State private var reviewedConnection: BrokerConnectionBinding?
-    @State private var busy = false
-    @State private var message = ""
-    @State private var showApproval = false
-    @State private var orders: [AccessOrder] = []
-    @AppStorage("coinbaseLastActionID") private var savedID = ""
-    @AppStorage("coinbaseLastActionEndpoint") private var savedEndpoint = ""
-
-    private var intent: [String: String] {
-        var p = ["client_id": clientID, "action": action, "account_id": account, "environment": "production"]
-        switch action {
-        case "limit_order":
-            p.merge(["product_id": product, "side": side, "base_size": quantity, "limit_price": price,
-                     "fee_policy": feePolicy, "fee_estimate_ceiling": feeCeiling, "debit_admission_ceiling": debitCeiling, "headroom": headroom, "fee_currency": feeCurrency]) { _, new in new }
-        case "cancel_order": p["order_id"] = orderID
-        default:
-            p.merge(["destination": destination, "currency": currency, "amount": amount,
-                     "network": "coinbase_internal", "fee_policy": "internal_no_fee_parameter"]) { _, new in new }
-        }
-        return p
-    }
-    private var canConfirm: Bool {
-        guard let r = review, r.token != nil, r.state == "REVIEW", r.expires_at > Date().timeIntervalSince1970,
-              reviewedIntent == intent, let connection = reviewedConnection,
-              connection.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return false }
-        return canPrepare
-    }
-    private var canPrepare: Bool { capabilities?.permits(action, account: account) == true }
-    var body: some View {
-        Screen(title: "Coinbase access", isDemo: false) {
-            Text("ACCOUNT ACCESS").font(.caption.bold()).foregroundStyle(Palette.mint)
-            Text("Check provider permissions and view orders for the selected portfolio. Any permitted action requires a separate review and confirmation.").font(.caption)
-            Button("Refresh permissions and portfolios") { load() }.disabled(busy)
-            if let c = capabilities {
-                Text("Provider permissions — view: \(c.granted.can_view ? "yes" : "no"), trade: \(c.granted.can_trade ? "yes" : "no"), transfer: \(c.granted.can_transfer ? "yes" : "no")")
-                Text("Server trading: \(c.trading_enabled ? "enabled" : "disabled") · transfers: \(c.transfers_enabled ? "enabled" : "disabled")")
-                DisclosureGroup("Supported actions and limits") {
-                    ForEach(c.limitations, id: \.self) { Text($0).font(.caption).foregroundStyle(Palette.muted) }
-                }
-                Picker("Source portfolio", selection: $account) {
-                    Text("Select portfolio").tag("")
-                    ForEach(c.portfolios.filter { $0.id == c.granted.portfolio_uuid }) { Text("Authorized portfolio · \($0.type.lowercased())").tag($0.id) }
-                }
-                Button("Load account orders") { loadOrders() }.disabled(busy || account.isEmpty || !c.granted.can_view)
-                ForEach(orders) { order in
-                    Text("\(order.product_id) · \(order.side) · \(order.status)").font(.caption)
-                }
-                DisclosureGroup("Trade controls") {
-                VStack(alignment: .leading, spacing: 14) {
-                Picker("Action", selection: $action) {
-                    Text("Spot limit order · GTC").tag("limit_order")
-                    Text("Cancel order").tag("cancel_order")
-                    Text("Internal portfolio transfer").tag("internal_transfer")
-                }
-                if !canPrepare { Text("This action is unavailable for the selected portfolio. Both provider permission and the gateway control must allow it.").font(.caption).foregroundStyle(.orange) }
-                if action == "limit_order" {
-                    TextField("Exact product, e.g. BTC-USD", text: $product)
-                    Picker("Side", selection: $side) { Text("Buy").tag("BUY"); Text("Sell").tag("SELL") }
-                    TextField("Quantity in base-asset units", text: $quantity)
-                    TextField("Limit price in quote currency", text: $price)
-                    Picker("Fee policy", selection: $feePolicy) {
-                        Text("Require provider cap (unsupported)").tag("require_provider_cap")
-                        Text("Accept a rechecked estimate").tag("accept_rechecked_estimate")
-                    }
-                    TextField("Fee estimate ceiling", text: $feeCeiling)
-                    TextField("Debit admission ceiling", text: $debitCeiling)
-                    TextField("Explicit headroom", text: $headroom)
-                    TextField("Fee currency (product quote currency)", text: $feeCurrency)
-                    Text("Actual fees and debit may exceed these pre-send ceilings. These are admission checks, not provider guarantees. Review and explicitly opt in to estimated fees.").font(.caption)
-                    Text("GTC spot limit only. Commission is estimated and rechecked before submission; Coinbase provides no hard fee ceiling. No leverage or short selling.").font(.caption)
-                } else if action == "cancel_order" {
-                    TextField("Exact broker order ID", text: $orderID)
-                    ForEach(orders) { order in
-                        Button("\(order.product_id) \(order.side) · \(order.status) · \(order.order_id)") { orderID = order.order_id }
-                    }
-                } else {
-                    Picker("Destination portfolio", selection: $destination) {
-                        Text("Select destination").tag("")
-                        ForEach(c.portfolios) { Text($0.id).tag($0.id) }
-                    }
-                    TextField("Exact asset, e.g. USDC", text: $currency)
-                    TextField("Asset amount", text: $amount)
-                    Text("Internal Coinbase portfolio movement only. This does not withdraw crypto to an address or transfer money to a bank. This API has no network or fee parameter. A successful response confirms the exact saved request; balances are not independently measured. An uncertain result blocks both portfolios and cannot be retried automatically.").font(.caption)
-                }
-                Button("Prepare saved review") { prepare() }.disabled(busy || !canPrepare)
-                }.padding(.top, 12)
-                }
-            }
-            if let r = review {
-                Text(r.summary).font(.caption.monospaced()).textSelection(.enabled)
-                Text("State: \(r.state) · expires \(workspaceDate(r.expires_at))")
-                Button("Confirm this exact action") { showApproval = true }.disabled(busy || !canConfirm)
-            }
-            if !savedID.isEmpty && savedEndpoint == store.aiEndpoint {
-                Button("Refresh saved action and reconcile") { reconcile() }.disabled(busy)
-            }
-            Text(message).font(.caption).textSelection(.enabled)
-        }
-        .disabled(busy)
-        .onChange(of: intent) { _, _ in review = nil; reviewedIntent = nil }
-        .onChange(of: store.aiEndpoint) { _, _ in clearConnection() }
-        .onChange(of: store.aiToken) { _, _ in clearConnection() }
-        .confirmationDialog("Submit the exact reviewed production action?", isPresented: $showApproval, titleVisibility: .visible) {
-            Button("Submit reviewed action", role: .destructive) { confirm() }
-            Button("Keep reviewing", role: .cancel) {}
-        } message: { Text("This can affect real funds. Only the saved terms displayed above will be submitted.") }
-    }
-    private func clearConnection() {
-        capabilities = nil; review = nil; reviewedIntent = nil; reviewedConnection = nil
-        orders = []; account = ""; showApproval = false; message = "Connection changed; refresh account access."
-    }
-    private func load() {
-        guard !busy else { return }
-        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
-        busy = true; review = nil
-        Task { defer { busy = false }
-            do {
-                let c: AccessCapabilities = try await WorkspaceAPI.request("v1/coinbase/capabilities", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
-                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), c.provider == "coinbase", c.environment == "production" else { return }
-                capabilities = c
-                account = c.granted.can_view && c.portfolios.contains(where: { $0.id == c.granted.portfolio_uuid }) ? c.granted.portfolio_uuid : ""
-                orders = []; message = "Permissions checked. No transaction was submitted."
-            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
-        }
-    }
-    private func prepare() {
-        guard !busy, canPrepare else { return }
-        clientID = UUID().uuidString
-        let p = intent, b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
-        busy = true; review = nil
-        Task { defer { busy = false }
-            do {
-                let r: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/review", body: p, endpoint: b.endpoint, token: b.token)
-                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), p == intent else { return }
-                review = r; reviewedIntent = p; reviewedConnection = b; savedID = r.id; savedEndpoint = b.endpoint
-                message = "Review every field before confirming."
-            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
-        }
-    }
-    private func confirm() {
-        guard canConfirm, let r = review, let token = r.token, let b = reviewedConnection else { return }
-        busy = true; review = nil
-        Task { defer { busy = false }
-            do {
-                let result: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/confirm", body: AccessApproval(id: r.id, token: token, digest: r.digest, approved: true), endpoint: b.endpoint, token: b.token)
-                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
-                review = result; message = "Saved result: \(result.state). Refresh to reconcile; never recreate an uncertain action."
-            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = "Result uncertain. Refresh the saved action. " + error.localizedDescription } }
-        }
-    }
-    private func reconcile() {
-        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), id = savedID
-        busy = true
-        Task { defer { busy = false }
-            do {
-                let r: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/reconcile", body: ["id": id], endpoint: b.endpoint, token: b.token)
-                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
-                review = r; message = "Saved state: \(r.state). UNKNOWN requires authoritative resolution; no automatic retry."
-            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
-        }
-    }
-    private func loadOrders() {
-        guard !busy, !account.isEmpty, capabilities?.granted.can_view == true else { return }
-        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), selected = account
-        busy = true
-        Task { defer { busy = false }
-            do {
-                let r: AccessOrders = try await WorkspaceAPI.request("v1/coinbase/orders", body: ["account_id": selected], endpoint: b.endpoint, token: b.token)
-                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), selected == account else { return }
-                orders = r.orders; message = r.orders.isEmpty ? "No orders returned for this portfolio." : "Loaded \(r.orders.count) orders."
-            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
-        }
-    }
-}
 
 // Separate from manual paper reviews: starting a fixed protocol authorizes only
 // its future simulated fills. This API has no broker/account identifier input.
@@ -645,6 +188,544 @@ struct AutomatedPaperSnapshot: Decodable, Sendable {
     let worker_checked_at: Double?; let checked_at: Double
 }
 
+
+// MARK: - Paper account
+
+struct PaperTradingView: View {
+    @Environment(AppStore.self) private var store
+    @State private var snapshot: PaperSnapshot?
+    @State private var review: PaperReview?
+    @State private var reviewBinding: BrokerConnectionBinding?
+    @State private var symbol = ""
+    @State private var side = "buy"
+    @State private var quantity = ""
+    @State private var command = ""
+    @State private var note = ""
+    @State private var status = ""
+    @State private var statusKind: NoticeKind = .info
+    @State private var sheetStatus = ""
+    @State private var busy = false
+    @State private var requestID = UUID().uuidString
+    var body: some View {
+        SubScreen(title: "Paper account", refresh: { await load() }) {
+            HStack { StatusBadge("Paper", tone: .paper); Spacer(); if busy { ProgressView() } }
+            if let snapshot {
+                SectionCard(footer: "Fills use the previous session’s close plus 0.10% slippage. Valuations update when you refresh.") {
+                    HeroMetric(label: "Account value", value: workspaceMoney(snapshot.equity),
+                               delta: "\(workspaceMoney(snapshot.realized_pnl, signed: true)) realised", deltaTone: toneFor(snapshot.realized_pnl))
+                    HStack(spacing: Spacing.l) {
+                        MetricTile(label: "Cash", value: workspaceMoney(snapshot.cash))
+                        MetricTile(label: "Max drawdown", value: drawdown(snapshot.max_drawdown))
+                    }
+                    Button("Update valuations") { Task { await load(mark: true) } }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
+                }
+                SectionCard(title: "Holdings") {
+                    if snapshot.positions.isEmpty {
+                        EmptyState(title: "No positions", message: "Filled paper orders appear here.", icon: "chart.pie")
+                    } else {
+                        ForEach(snapshot.positions) { p in
+                            HoldingRow(symbol: p.symbol, detail: "\(p.quantity) shares · marked \(relativeTime(p.reference_as_of))",
+                                       value: workspaceMoney(p.market_value), change: workspaceMoney(p.unrealized_pnl, signed: true), changeTone: toneFor(p.unrealized_pnl))
+                        }
+                    }
+                }
+            } else if !busy {
+                EmptyState(title: "Not loaded", message: "Pull down to load your paper account.", icon: "arrow.down")
+            }
+            SectionCard(title: "New paper order", footer: "You’ll review the simulated fill before anything is recorded.") {
+                TextField("Or type it: Buy 3 AAPL", text: $command).fieldStyle()
+                    .onChange(of: command) { _, text in
+                        if case .trade(let intent) = DemoAssistant.parse(text) { symbol = intent.symbol; side = intent.side.rawValue; quantity = units(intent.quantity) }
+                    }
+                Picker("Side", selection: $side) { Text("Buy").tag("buy"); Text("Sell").tag("sell") }.pickerStyle(.segmented)
+                HStack(spacing: Spacing.m) {
+                    TextField("Symbol", text: $symbol).phoneSymbolInput().fieldStyle()
+                    TextField("Shares", text: $quantity).phoneDecimalInput().fieldStyle()
+                }
+                Button("Review order") { prepare() }.buttonStyle(PrimaryButtonStyle()).disabled(busy || symbol.trimmingCharacters(in: .whitespaces).isEmpty || quantity.isEmpty)
+            }
+            OutcomeNotice(text: status, kind: statusKind)
+            SectionCard(title: "Notes") {
+                TextField("Thesis, observation or lesson", text: $note, axis: .vertical).lineLimit(2...5).fieldStyle()
+                Button("Save note") { saveNote() }.buttonStyle(SecondaryButtonStyle()).disabled(busy || note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if let snapshot, !snapshot.journal.isEmpty {
+                    ForEach(snapshot.journal.prefix(20)) { event in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack { Text(titleCase(event.kind)).font(.caption.weight(.semibold)); Spacer(); Text(relativeTime(event.at)).font(.caption).foregroundStyle(Theme.textTertiary) }
+                            if !event.summary.isEmpty { Text(event.summary).font(.footnote).foregroundStyle(Theme.textSecondary) }
+                        }.padding(.vertical, Spacing.xs)
+                    }
+                }
+            }
+        }
+        .task { if snapshot == nil { await load() } }
+        .onChange(of: symbol) { _, _ in if review == nil { requestID = UUID().uuidString } }
+        .onChange(of: side) { _, _ in if review == nil { requestID = UUID().uuidString } }
+        .onChange(of: quantity) { _, _ in if review == nil { requestID = UUID().uuidString } }
+        .onConnectionChange(store) { clearConnection() }
+        // A dismissed or confirmed review never reuses its client_id for a later request.
+        .sheet(item: $review, onDismiss: { requestID = UUID().uuidString; sheetStatus = "" }) { proposed in
+            ConfirmationSheet(title: "Review paper order",
+                              headline: "\(proposed.side.capitalized) \(proposed.quantity) \(proposed.symbol)",
+                              badge: StatusBadge("Paper", tone: .paper),
+                              disclaimer: "This changes only your paper account. The reference price is delayed and can differ from a live executable price.",
+                              expiresAt: Date(timeIntervalSince1970: proposed.expires_at),
+                              confirmTitle: "Confirm paper \(proposed.side)",
+                              busy: busy, notice: sheetStatus, noticeKind: .warning,
+                              rows: {
+                                  DetailRow("Simulated fill price", workspaceMoney(proposed.fill_price))
+                                  DetailRow("Reference close", "\(workspaceMoney(proposed.reference_price)) · \(gatewayDate(proposed.reference_as_of))")
+                                  DetailRow("Cash change", workspaceMoney(proposed.cash_change, signed: true), tone: toneFor(proposed.cash_change))
+                                  Footnote(proposed.source)
+                              },
+                              confirm: { confirm(proposed) },
+                              cancel: { review = nil; requestID = UUID().uuidString })
+                .interactiveDismissDisabled(busy)
+        }
+    }
+    private func toneFor(_ value: String) -> Tone {
+        guard let d = strictDecimal(value) else { return .neutral }
+        return d > 0 ? .positive : d < 0 ? .negative : .neutral
+    }
+    private func drawdown(_ value: String) -> String {
+        guard let d = strictDecimal(value) else { return "—" }
+        return percent(NSDecimalNumber(decimal: d * 100).doubleValue, digits: 1)
+    }
+    private func binding() -> BrokerConnectionBinding { BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken) }
+    private func current(_ b: BrokerConnectionBinding) -> Bool { b.matches(endpoint: store.aiEndpoint, token: store.aiToken) }
+    private func clearConnection() { snapshot = nil; review = nil; reviewBinding = nil; status = "Connection changed. Refresh the paper account."; statusKind = .warning; requestID = UUID().uuidString }
+    private func load(mark: Bool = false) async {
+        guard !busy else { return }; busy = true
+        defer { busy = false }
+        let b = binding()
+        do {
+            let result: PaperSnapshot = try await WorkspaceAPI.request(mark ? "v1/paper/mark" : "v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
+            guard current(b), result.mode == "paper" else { return }
+            snapshot = result; status = ""
+        } catch { if current(b) { status = error.localizedDescription; statusKind = .error } }
+    }
+    private func prepare() {
+        guard !busy else { return }; busy = true
+        let b = binding()
+        let intent = PaperIntentRequest(symbol: symbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), side: side, quantity: quantity, client_id: requestID)
+        Task { defer { busy = false }
+            do {
+                let result: PaperReview = try await WorkspaceAPI.request("v1/paper/review", body: intent, endpoint: b.endpoint, token: b.token)
+                guard current(b) else { return }
+                guard PaperValidation.reviewMatches(result, request: intent) else { throw WorkspaceError(message: "The review didn’t match your order. Please try again.") }
+                review = result; reviewBinding = b; status = ""
+            } catch { if current(b) { status = error.localizedDescription; statusKind = .error; requestID = UUID().uuidString } }
+        }
+    }
+    private func confirm(_ proposed: PaperReview) {
+        guard !busy, let b = reviewBinding, current(b), let token = proposed.token else { return }
+        busy = true; requestID = UUID().uuidString  // Retries use proposed.id/token, not the form's client_id.
+        Task { defer { busy = false }
+            let receipt: PaperReview
+            do {
+                receipt = try await WorkspaceAPI.request("v1/paper/confirm", body: PaperApproval(id: proposed.id, token: token), endpoint: b.endpoint, token: b.token)
+                guard current(b) else { return }
+                guard PaperValidation.receiptMatches(receipt, review: proposed) else { throw WorkspaceError(message: "The receipt didn’t match the review. Refresh before another order.") }
+            } catch {
+                if current(b) { sheetStatus = "\(error.localizedDescription) The result is unknown: retry this confirmation or refresh the account." }
+                return
+            }
+            store.journal.append(kind: "paper_fill", text: "Paper \(receipt.side) \(receipt.quantity) \(receipt.symbol) at \(receipt.fill_price). Delayed reference simulation.", strategy: store.strategyID, accountID: "paper", holdings: [], mode: "paper")
+            review = nil; requestID = UUID().uuidString; command = ""
+            status = "Paper order filled and saved."; statusKind = .success
+            do {
+                let result: PaperSnapshot = try await WorkspaceAPI.request("v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
+                if current(b) { snapshot = result }
+            } catch { if current(b) { status = "Paper order filled and saved, but the account didn’t refresh. Pull down to retry."; statusKind = .warning } }
+        }
+    }
+    private func saveNote() {
+        guard !busy else { return }; busy = true
+        let b = binding(), text = note
+        Task { defer { busy = false }
+            do {
+                let _: PaperEvent = try await WorkspaceAPI.request("v1/paper/note", body: ["text": text], endpoint: b.endpoint, token: b.token)
+                let result: PaperSnapshot = try await WorkspaceAPI.request("v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
+                if current(b) { snapshot = result; note = ""; status = "" }
+            } catch { if current(b) { status = error.localizedDescription; statusKind = .error } }
+        }
+    }
+}
+
+// MARK: - Coinbase balances
+
+struct CoinbaseView: View {
+    @Environment(AppStore.self) private var store
+    @State private var snapshot: CoinbaseSnapshot?
+    @State private var message = ""
+    @State private var busy = false
+    @State private var showEmptyAccounts = false
+    private var visibleAccounts: [CoinbaseAccount] {
+        (snapshot?.accounts ?? []).filter { showEmptyAccounts || !$0.hasZeroBalance }
+            .sorted { $0.currency == $1.currency ? $0.id < $1.id : $0.currency < $1.currency }
+    }
+    var body: some View {
+        SubScreen(title: "Coinbase", refresh: { await refresh() }) {
+            HStack {
+                StatusBadge("Live", tone: .live)
+                if let snapshot { Text("Updated \(relativeTime(snapshot.as_of))").font(.footnote).foregroundStyle(Theme.textTertiary) }
+                Spacer()
+                if busy { ProgressView() }
+            }
+            NavigationLink { CoinbaseActionsView() } label: { NavigationRow(title: "Permissions and orders", detail: "What this key may do", icon: "lock.shield") }
+                .buttonStyle(RowButtonStyle()).padding(.horizontal, Spacing.l).background(Theme.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            if let snapshot {
+                SectionCard(title: "Balances", footer: "Balances are shown per asset, not as a combined dollar value.") {
+                    Toggle("Show zero balances", isOn: $showEmptyAccounts).font(.subheadline)
+                    if snapshot.accounts.isEmpty {
+                        EmptyState(title: "No accounts", message: "Coinbase returned no asset accounts for this key.")
+                    } else if visibleAccounts.isEmpty {
+                        EmptyState(title: "All balances are zero", message: "Turn on “Show zero balances” to see them.")
+                    } else {
+                        ForEach(visibleAccounts) { a in
+                            HoldingRow(symbol: a.currency, detail: a.hold == "0" || strictDecimal(a.hold) == 0 ? a.name : "\(a.hold) on hold", value: a.total,
+                                       change: a.available == a.total ? nil : "\(a.available) available")
+                        }
+                        Footnote("\(visibleAccounts.count) of \(snapshot.accounts.count) asset accounts shown.")
+                    }
+                }
+            } else if !busy {
+                EmptyState(title: "Not loaded", message: "Pull down to load balances through your server.", icon: "arrow.down")
+            }
+            OutcomeNotice(text: message, kind: .error)
+        }
+        .task { if snapshot == nil { await refresh() } }
+        .onConnectionChange(store) { snapshot = nil; message = "" }
+    }
+    private func refresh() async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+        do {
+            let result: CoinbaseSnapshot = try await WorkspaceAPI.request("v1/coinbase/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
+            guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+            guard result.broker == "coinbase", result.read_only else { throw WorkspaceError(message: "Coinbase returned something unexpected. Try again.") }
+            snapshot = result; message = ""
+        } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
+    }
+}
+
+// MARK: - Strategy lab
+
+struct StrategyComparisonView: View {
+    @Environment(AppStore.self) private var store
+    @State private var ticker = "AAPL"
+    @State private var result: StrategyComparison?
+    @State private var message = ""
+    @State private var busy = false
+    var body: some View {
+        SubScreen(title: "Strategy lab") {
+            SectionCard(footer: "Backtests of three rule-based strategies after costs. Research only; past results are not a recommendation.") {
+                HStack(spacing: Spacing.m) {
+                    TextField("Symbol", text: $ticker).phoneSymbolInput().fieldStyle()
+                    Button(busy ? "Running…" : "Compare") { compare() }.buttonStyle(PrimaryButtonStyle()).frame(width: 130).disabled(busy || ticker.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            OutcomeNotice(text: message, kind: .error)
+            if let result {
+                Footnote(result.scope)
+                ForEach(result.strategies) { strategy in
+                    SectionCard(title: titleCase(strategy.strategy), footer: strategy.rule) {
+                        Eyebrow("Validation · 10 bps per side")
+                        metrics(strategy.validation.baseline)
+                        Eyebrow("Final period · 10 bps per side")
+                        metrics(strategy.final.baseline)
+                        Eyebrow("Final period by cost")
+                        HStack(spacing: Spacing.m) {
+                            ForEach(["0", "10", "25", "50"], id: \.self) { cost in
+                                if let m = strategy.final.cost_scenarios[cost] {
+                                    MetricTile(label: "\(cost) bps", value: percent(m.return_pct, signed: true), tone: m.return_pct >= 0 ? .positive : .negative)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .onConnectionChange(store) { result = nil }
+    }
+    @ViewBuilder private func metrics(_ m: StrategyMetrics) -> some View {
+        HStack(spacing: Spacing.m) {
+            MetricTile(label: "Strategy", value: percent(m.return_pct, signed: true), tone: m.return_pct >= 0 ? .positive : .negative)
+            MetricTile(label: "Benchmark", value: percent(m.benchmark_price_return_pct, signed: true))
+            MetricTile(label: "Drawdown", value: percent(m.max_drawdown_pct))
+            MetricTile(label: "Fills", value: "\(m.fills)")
+        }
+    }
+    private func compare() {
+        busy = true; result = nil
+        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), symbol = ticker.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { defer { busy = false }
+            do {
+                let report: StrategyComparison = try await WorkspaceAPI.request("v1/strategies", body: ["ticker": symbol], endpoint: b.endpoint, token: b.token)
+                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+                guard report.ticker == symbol, report.evidence == "exploratory_previously_observed" else { throw WorkspaceError(message: "This result couldn’t be verified.") }
+                result = report; message = ""
+            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
+        }
+    }
+}
+
+// MARK: - Coinbase permissions and actions
+
+struct CoinbaseActionsView: View {
+    @Environment(AppStore.self) private var store
+    @State private var capabilities: AccessCapabilities?
+    @State private var account = ""
+    @State private var action = "limit_order"
+    @State private var feePolicy = "accept_rechecked_estimate"
+    @State private var feeCeiling = ""
+    @State private var debitCeiling = ""
+    @State private var headroom = ""
+    @State private var feeCurrency = ""
+    @State private var product = ""
+    @State private var side = "BUY"
+    @State private var quantity = ""
+    @State private var price = ""
+    @State private var destination = ""
+    @State private var currency = ""
+    @State private var amount = ""
+    @State private var orderID = ""
+    @State private var clientID = UUID().uuidString
+    @State private var review: AccessReview?
+    @State private var reviewedIntent: [String: String]?
+    @State private var reviewedConnection: BrokerConnectionBinding?
+    @State private var busy = false
+    @State private var message = ""
+    @State private var messageKind: NoticeKind = .info
+    @State private var showApproval = false
+    @State private var orders: [AccessOrder] = []
+    @AppStorage("coinbaseLastActionID") private var savedID = ""
+    @AppStorage("coinbaseLastActionEndpoint") private var savedEndpoint = ""
+
+    private var intent: [String: String] {
+        var p = ["client_id": clientID, "action": action, "account_id": account, "environment": "production"]
+        switch action {
+        case "limit_order":
+            p.merge(["product_id": product, "side": side, "base_size": quantity, "limit_price": price,
+                     "fee_policy": feePolicy, "fee_estimate_ceiling": feeCeiling, "debit_admission_ceiling": debitCeiling, "headroom": headroom, "fee_currency": feeCurrency]) { _, new in new }
+        case "cancel_order": p["order_id"] = orderID
+        default:
+            p.merge(["destination": destination, "currency": currency, "amount": amount,
+                     "network": "coinbase_internal", "fee_policy": "internal_no_fee_parameter"]) { _, new in new }
+        }
+        return p
+    }
+    private var canConfirm: Bool {
+        guard let r = review, r.token != nil, r.state == "REVIEW", r.expires_at > Date().timeIntervalSince1970,
+              reviewedIntent == intent, let connection = reviewedConnection,
+              connection.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return false }
+        return canPrepare
+    }
+    private var canPrepare: Bool { capabilities?.permits(action, account: account) == true }
+    private var anyActionPermitted: Bool {
+        ["limit_order", "cancel_order", "internal_transfer"].contains { capabilities?.permits($0, account: account) == true }
+    }
+    var body: some View {
+        SubScreen(title: "Permissions", refresh: { await load() }) {
+            HStack { StatusBadge("Live", tone: .live); Spacer(); if busy { ProgressView() } }
+            if let c = capabilities {
+                SectionCard(title: "This key may", footer: "Granted by your Coinbase API key. Your server has its own switches, shown on the right.") {
+                    permissionRow("View balances", granted: c.granted.can_view, server: nil)
+                    permissionRow("Trade", granted: c.granted.can_trade, server: c.trading_enabled)
+                    permissionRow("Cancel orders", granted: c.granted.can_trade, server: c.cancellation_enabled)
+                    permissionRow("Transfer between portfolios", granted: c.granted.can_transfer, server: c.transfers_enabled)
+                    if !c.limitations.isEmpty {
+                        DisclosureGroup("Limits") {
+                            VStack(alignment: .leading, spacing: Spacing.s) { ForEach(c.limitations, id: \.self) { Footnote($0) } }.padding(.top, Spacing.s)
+                        }.font(.footnote.weight(.semibold))
+                    }
+                }
+                SectionCard(title: "Orders") {
+                    Picker("Portfolio", selection: $account) {
+                        Text("Select a portfolio").tag("")
+                        ForEach(c.portfolios.filter { $0.id == c.granted.portfolio_uuid }) { Text("\($0.type.capitalized) portfolio").tag($0.id) }
+                    }.pickerStyle(.menu)
+                    Button("Load orders") { Task { await loadOrders() } }.buttonStyle(SecondaryButtonStyle()).disabled(busy || account.isEmpty || !c.granted.can_view)
+                    if orders.isEmpty {
+                        Footnote("Orders for the selected portfolio appear here.")
+                    } else {
+                        ForEach(orders) { order in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(order.product_id).font(.subheadline.weight(.semibold))
+                                    Text(order.side.capitalized).font(.caption).foregroundStyle(Theme.textSecondary)
+                                }
+                                Spacer()
+                                StatusBadge.orderState(order.status)
+                            }.padding(.vertical, Spacing.xs)
+                        }
+                    }
+                }
+                if anyActionPermitted {
+                    SectionCard(title: "New action", footer: "Any action needs a saved review and a separate confirmation.") {
+                        actionForm(c)
+                    }
+                } else if !account.isEmpty {
+                    InlineNotice(kind: .info, message: "Trading, cancellations and transfers are off for this portfolio. Both the key’s permission and your server must allow them.")
+                }
+            } else if !busy {
+                EmptyState(title: "Not loaded", message: "Pull down to check this key’s permissions.", icon: "arrow.down")
+            }
+            if let r = review {
+                SectionCard(title: "Saved review") {
+                    HStack { StatusBadge.orderState(r.state); Spacer(); Text("Expires \(gatewayDate(r.expires_at))").font(.caption).foregroundStyle(Theme.textTertiary) }
+                    Text(r.summary).font(.footnote).monospaced().textSelection(.enabled)
+                    if canConfirm {
+                        Button("Confirm") { showApproval = true }.buttonStyle(PrimaryButtonStyle(tone: .live)).disabled(busy)
+                    }
+                }
+            }
+            if !savedID.isEmpty && savedEndpoint == store.aiEndpoint {
+                Button("Check last action’s status") { Task { await reconcile() } }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
+            }
+            OutcomeNotice(text: message, kind: messageKind)
+        }
+        .disabled(busy)
+        .task { if capabilities == nil { await load() } }
+        .onChange(of: intent) { _, _ in review = nil; reviewedIntent = nil }
+        .onConnectionChange(store) { clearConnection() }
+        .confirmationDialog("Submit this reviewed action to Coinbase?", isPresented: $showApproval, titleVisibility: .visible) {
+            Button("Submit", role: .destructive) { confirm() }
+            Button("Keep reviewing", role: .cancel) {}
+        } message: { Text("This affects real funds. Only the saved terms shown above are submitted.") }
+    }
+    @ViewBuilder private func actionForm(_ c: AccessCapabilities) -> some View {
+        Picker("Action", selection: $action) {
+            Text("Limit order").tag("limit_order")
+            Text("Cancel order").tag("cancel_order")
+            Text("Move between portfolios").tag("internal_transfer")
+        }.pickerStyle(.segmented)
+        if !canPrepare { InlineNotice(kind: .warning, message: "Not available for this portfolio.") }
+        if action == "limit_order" {
+            TextField("Product, e.g. BTC-USD", text: $product).phoneSymbolInput().fieldStyle()
+            Picker("Side", selection: $side) { Text("Buy").tag("BUY"); Text("Sell").tag("SELL") }.pickerStyle(.segmented)
+            HStack(spacing: Spacing.m) {
+                TextField("Amount (base asset)", text: $quantity).phoneDecimalInput().fieldStyle()
+                TextField("Limit price", text: $price).phoneDecimalInput().fieldStyle()
+            }
+            DisclosureGroup("Fee limits") {
+                VStack(alignment: .leading, spacing: Spacing.m) {
+                    Picker("Fee policy", selection: $feePolicy) {
+                        Text("Accept a rechecked estimate").tag("accept_rechecked_estimate")
+                        Text("Require an exact cap (Coinbase doesn’t offer one)").tag("require_provider_cap")
+                    }.pickerStyle(.menu)
+                    TextField("Max fee", text: $feeCeiling).phoneDecimalInput().fieldStyle()
+                    TextField("Max total debit", text: $debitCeiling).phoneDecimalInput().fieldStyle()
+                    TextField("Buffer", text: $headroom).phoneDecimalInput().fieldStyle()
+                    TextField("Fee currency (quote currency, e.g. USD)", text: $feeCurrency).phoneSymbolInput().fieldStyle()
+                    Footnote("These are pre-send checks on an estimate. Actual fees and debit can be higher; Coinbase gives no hard fee cap. Good-till-cancelled spot only; no leverage or short selling.")
+                }.padding(.top, Spacing.s)
+            }.font(.footnote.weight(.semibold))
+        } else if action == "cancel_order" {
+            TextField("Order ID", text: $orderID).fieldStyle()
+            ForEach(orders) { order in
+                Button { orderID = order.order_id } label: {
+                    HStack { Text("\(order.product_id) · \(order.side.capitalized)").font(.footnote); Spacer(); StatusBadge.orderState(order.status) }
+                }.buttonStyle(RowButtonStyle())
+            }
+        } else {
+            Picker("Destination portfolio", selection: $destination) {
+                Text("Select destination").tag("")
+                ForEach(c.portfolios.filter { $0.id != account }) { Text("\($0.type.capitalized) · \($0.id.prefix(8))").tag($0.id) }
+            }.pickerStyle(.menu)
+            HStack(spacing: Spacing.m) {
+                TextField("Asset, e.g. USDC", text: $currency).phoneSymbolInput().fieldStyle()
+                TextField("Amount", text: $amount).phoneDecimalInput().fieldStyle()
+            }
+            Footnote("Moves funds between your own Coinbase portfolios only. This never withdraws to an address or a bank. An uncertain result locks both portfolios until it is resolved.")
+        }
+        Button("Review") { prepare() }.buttonStyle(PrimaryButtonStyle()).disabled(busy || !canPrepare)
+    }
+    private func permissionRow(_ label: String, granted: Bool, server: Bool?) -> some View {
+        HStack(spacing: Spacing.s) {
+            Text(label).font(.subheadline).foregroundStyle(Theme.textSecondary)
+            Spacer()
+            StatusBadge(granted ? "Allowed" : "Not allowed", tone: granted ? .positive : .neutral)
+            if let server { StatusBadge(server ? "Server on" : "Server off", tone: server ? .live : .neutral) }
+        }.accessibilityElement(children: .combine)
+    }
+    private func clearConnection() {
+        capabilities = nil; review = nil; reviewedIntent = nil; reviewedConnection = nil
+        orders = []; account = ""; showApproval = false; message = ""
+    }
+    private func load() async {
+        guard !busy else { return }
+        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+        busy = true; review = nil
+        defer { busy = false }
+        do {
+            let c: AccessCapabilities = try await WorkspaceAPI.request("v1/coinbase/capabilities", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
+            guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), c.provider == "coinbase", c.environment == "production" else { return }
+            capabilities = c
+            account = c.granted.can_view && c.portfolios.contains(where: { $0.id == c.granted.portfolio_uuid }) ? c.granted.portfolio_uuid : ""
+            orders = []; message = ""
+        } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription; messageKind = .error } }
+    }
+    private func prepare() {
+        guard !busy, canPrepare else { return }
+        clientID = UUID().uuidString
+        let p = intent, b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+        busy = true; review = nil
+        Task { defer { busy = false }
+            do {
+                let r: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/review", body: p, endpoint: b.endpoint, token: b.token)
+                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), p == intent else { return }
+                review = r; reviewedIntent = p; reviewedConnection = b
+                message = "Check every field before confirming."; messageKind = .info
+            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription; messageKind = .error } }
+        }
+    }
+    private func confirm() {
+        guard canConfirm, let r = review, let token = r.token, let b = reviewedConnection else { return }
+        // Record the attempt before the network call so an uncertain result can be reconciled later.
+        savedID = r.id; savedEndpoint = b.endpoint
+        busy = true; review = nil; reviewedIntent = nil; reviewedConnection = nil
+        Task { defer { busy = false }
+            do {
+                let result: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/confirm", body: AccessApproval(id: r.id, token: token, digest: r.digest, approved: true), endpoint: b.endpoint, token: b.token)
+                guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+                guard result.id == r.id else { throw WorkspaceError(message: "Unexpected reply. Check the last action’s status before doing anything else.") }
+                review = result
+                message = result.state == "UNKNOWN" ? "We don’t know yet whether this went through. Check its status before placing another action." : "Saved as \(StatusBadge.orderState(result.state).text.lowercased())."
+                messageKind = result.state == "UNKNOWN" ? .warning : .success
+            } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = "Result uncertain. Check the last action’s status. " + error.localizedDescription; messageKind = .warning } }
+        }
+    }
+    private func reconcile() async {
+        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), id = savedID
+        busy = true
+        defer { busy = false }
+        do {
+            let r: AccessReview = try await WorkspaceAPI.request("v1/coinbase/action/reconcile", body: ["id": id], endpoint: b.endpoint, token: b.token)
+            guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+            guard r.id == id else { throw WorkspaceError(message: "Unexpected reply for the saved action.") }
+            review = r; reviewedIntent = nil; reviewedConnection = nil
+            message = r.state == "UNKNOWN" ? "Still unconfirmed. This needs resolving against Coinbase before another action." : "Last action: \(StatusBadge.orderState(r.state).text.lowercased())."
+            messageKind = r.state == "UNKNOWN" ? .warning : .info
+        } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription; messageKind = .error } }
+    }
+    private func loadOrders() async {
+        guard !busy, !account.isEmpty, capabilities?.granted.can_view == true else { return }
+        let b = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken), selected = account
+        busy = true
+        defer { busy = false }
+        do {
+            let r: AccessOrders = try await WorkspaceAPI.request("v1/coinbase/orders", body: ["account_id": selected], endpoint: b.endpoint, token: b.token)
+            guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken), selected == account else { return }
+            orders = r.orders; message = ""
+        } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription; messageKind = .error } }
+    }
+}
+
+// MARK: - Automated paper strategies
+
 struct AutomatedPaperView: View {
     @Environment(AppStore.self) private var store
     @State private var snapshot: AutomatedPaperSnapshot?
@@ -654,105 +735,137 @@ struct AutomatedPaperView: View {
     @State private var requestID = UUID().uuidString
     @State private var startBinding: BrokerConnectionBinding?
     var body: some View {
-        Screen(title: "Paper strategies", isDemo: false) {
-            Text("AUTOMATED PAPER · NO REAL MONEY").font(.caption.bold()).foregroundStyle(Palette.mint)
-            Text("Three SPY rules · $10,000 simulated cash each. Separate from your manual paper and real accounts.").font(.subheadline)
-            HStack {
-                Button("Refresh status") { request("state", body: EmptyWorkspaceRequest()) }
-                Spacer()
-                Button("Check schedule") { request("check", body: EmptyWorkspaceRequest()) }
-            }.disabled(busy)
+        SubScreen(title: "Automated strategies", refresh: { await request("state", body: EmptyWorkspaceRequest()) }) {
+            HStack { StatusBadge("Paper", tone: .paper); Spacer(); if busy { ProgressView() } }
             if let snapshot {
-                if let heartbeat = snapshot.worker_checked_at {
-                    Text("Scheduler last checked \(workspaceDate(heartbeat))").font(.caption)
-                    if Date().timeIntervalSince1970 - heartbeat > 180 {
-                        Text("Scheduler heartbeat is stale. Check the Mac gateway before expecting another run.").font(.caption).foregroundStyle(.orange)
+                let proto = snapshot.runs.first?.protocol
+                SectionCard(footer: proto.map { "Each strategy starts with \(workspaceMoney($0.initial_cash)) of paper money, buys at most \($0.entry_fraction) of equity or \(workspaceMoney($0.max_entry)) per entry, and pays \($0.cost_bps) bps per side." } ?? "Three rule-based strategies trade SPY with separate paper balances.") {
+                    schedulerRow(snapshot)
+                    HStack(spacing: Spacing.l) {
+                        MetricTile(label: "Active", value: "\(snapshot.runs.filter { $0.active }.count) of \(snapshot.runs.count)")
+                        MetricTile(label: "Simulated fills", value: "\(snapshot.runs.reduce(0) { $0 + $1.fills })")
                     }
-                } else { Text("Scheduler has not checked yet.").font(.caption).foregroundStyle(.orange) }
-                if snapshot.runs.contains(where: \.active) {
-                    Button("Stop all paper strategies") { request("pause", body: ["id": "all"]) }.disabled(busy)
-                } else {
-                    Button("Start three SPY paper strategies") {
-                        startBinding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
-                        showStart = true
-                    }.buttonStyle(MintButton()).disabled(busy)
-                }
-                Text("\(snapshot.runs.filter { $0.active }.count) active · \(snapshot.runs.reduce(0) { $0 + $1.fills }) simulated fills").font(.caption)
-                DisclosureGroup("Schedule, rules and stopping") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Decisions are saved after 8:15 pm New York time. The next session’s simulated opening fill is recorded after that session ends. Keep your Mac awake; the phone app can be closed.")
-                        Text("Stopping cancels pending simulations and retains recorded holdings without new marks. It does not sell them. Start a new experiment to continue with fresh simulated cash.")
-                        Text(snapshot.notice)
-                    }.font(.caption).padding(.top, 8)
+                    if snapshot.runs.contains(where: \.active) {
+                        Button("Stop all strategies") { Task { await request("pause", body: ["id": "all"]) } }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
+                    } else {
+                        Button("Start strategies") {
+                            startBinding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
+                            showStart = true
+                        }.buttonStyle(PrimaryButtonStyle()).disabled(busy)
+                    }
                 }
                 ForEach(snapshot.runs) { run in
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(run.title).font(.headline)
-                        Text("\(run.symbol) · \(run.statusLabel)").font(.subheadline).foregroundStyle(run.active ? Palette.mint : .orange)
-                        LabeledContent("Paper equity", value: workspaceMoney(run.equity))
-                        Text("\(run.observations) sessions · \(run.fills) simulated fills").font(.caption)
-                        DisclosureGroup("Protocol and history") {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(run.reason)
-                                LabeledContent("Cash", value: workspaceMoney(run.cash))
-                                LabeledContent("Shares", value: run.quantity)
-                                LabeledContent("Recorded drawdown", value: run.drawdownPercent)
-                                Text("Last session: \(run.last_session ?? "none yet")")
-                                if let pending = run.pending {
-                                    Text("Saved intent: \(pending.long ? "long" : "cash") for \(pending.session)")
-                                } else if run.active { Text("First observation: \(run.next_session)") }
-                                Text(run.protocol.rule)
-                                Text("Started \(workspaceDate(run.created_at)) · \(run.protocol.version)")
-                                Text("Modeled costs: \(workspaceMoney(run.costs)) · realized result: \(workspaceMoney(run.realized))")
-                                ForEach(run.events) { event in
-                                    Text("\(workspaceDate(event.at)) · \(event.message)").textSelection(.enabled)
-                                }
-                                if run.active { Button("Stop this strategy") { request("pause", body: ["id": run.id]) }.disabled(busy) }
-                            }.font(.caption).padding(.top, 8)
+                    SectionCard {
+                        HStack { Text(run.title).font(.headline); Spacer(); StatusBadge(run.statusLabel, tone: run.active ? .positive : .warning) }
+                        HStack(spacing: Spacing.l) {
+                            MetricTile(label: "Value", value: workspaceMoney(run.equity))
+                            MetricTile(label: "Realised", value: workspaceMoney(run.realized, signed: true), tone: deltaTone(run.realized))
+                            MetricTile(label: "Drawdown", value: run.drawdownPercent)
                         }
-                    }.font(.subheadline.monospacedDigit()).card()
+                        Text("\(run.observations) sessions · \(run.fills) fills · \(run.quantity) shares").font(.caption).foregroundStyle(Theme.textSecondary)
+                        NavigationLink { AutomatedPaperRunDetail(run: run, stop: run.active ? { Task { await request("pause", body: ["id": run.id]) } } : nil) } label: {
+                            Text("Details").font(.footnote.weight(.semibold))
+                        }
+                    }
                 }
-                if snapshot.runs.isEmpty { Text("No automated experiments started yet.").font(.caption) }
+                if snapshot.runs.isEmpty { EmptyState(title: "Nothing running", message: "Start the three strategies to begin recording forward paper results.", icon: "clock.arrow.circlepath") }
+                Footnote("Signals are computed after 8:15 PM New York time and filled at the next session’s open. Your Mac must stay on; this phone can be closed. Stopping keeps recorded holdings without new marks and does not sell them.")
+            } else if !busy {
+                EmptyState(title: "Not loaded", message: "Pull down to load the strategies.", icon: "arrow.down")
             }
-            if !message.isEmpty { Text(message).font(.caption).textSelection(.enabled) }
+            OutcomeNotice(text: message, kind: .error)
         }
-        .task { if snapshot == nil { request("state", body: EmptyWorkspaceRequest()) } }
-        .onChange(of: store.aiEndpoint) { _, _ in clearConnection() }
-        .onChange(of: store.aiToken) { _, _ in clearConnection() }
-        .confirmationDialog("Start fixed paper experiments?", isPresented: $showStart, titleVisibility: .visible) {
-            Button("Start automated paper only") {
+        .task { if snapshot == nil { await request("state", body: EmptyWorkspaceRequest()) } }
+        .onConnectionChange(store) { clearConnection() }
+        .confirmationDialog("Start the three paper strategies?", isPresented: $showStart, titleVisibility: .visible) {
+            Button("Start paper strategies") {
                 guard let binding = startBinding, binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else {
-                    message = "Connection changed; refresh and review the protocol again."; return
+                    message = "Connection changed. Refresh and review again."; return
                 }
-                request("start", body: AutomatedPaperStart(client_id: requestID))
+                Task { await request("start", body: AutomatedPaperStart(client_id: requestID)) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Trend, breakout and mean reversion each receive $10,000 of simulated cash. Entry budget is capped at 25% of prior equity and $2,500, with 10 bps costs per side. A 10% observed drawdown or bad/missed data stops the experiment. Future simulated fills run without individual confirmation. No real money or broker orders are involved.")
+            Text("Trend, breakout and mean reversion each trade SPY with their own paper balance. A 10% drawdown or missing data stops a strategy. Future simulated fills run without individual confirmation. No real money or broker orders are involved.")
         }
     }
-    private func clearConnection() {
-        snapshot = nil; showStart = false; startBinding = nil; requestID = UUID().uuidString
-        message = "Connection changed; refresh paper strategies."
+    @ViewBuilder private func schedulerRow(_ snapshot: AutomatedPaperSnapshot) -> some View {
+        if let heartbeat = snapshot.worker_checked_at {
+            let stale = Date().timeIntervalSince1970 - heartbeat > 180
+            HStack(spacing: Spacing.s) {
+                StatusBadge(stale ? "Scheduler not running" : "Scheduler running", tone: stale ? .warning : .positive)
+                Text("checked \(relativeTime(heartbeat))").font(.caption).foregroundStyle(Theme.textTertiary)
+            }
+            if stale { InlineNotice(kind: .warning, message: "Your Mac may be asleep or the gateway stopped. No new decisions are recorded until it runs again.") }
+        } else {
+            StatusBadge("Scheduler has not run", tone: .warning)
+        }
     }
-    private func request<B: Encodable & Sendable>(_ action: String, body: B) {
+    private func deltaTone(_ value: String) -> Tone {
+        guard let d = strictDecimal(value) else { return .neutral }
+        return d > 0 ? .positive : d < 0 ? .negative : .neutral
+    }
+    private func clearConnection() {
+        snapshot = nil; showStart = false; startBinding = nil; requestID = UUID().uuidString; message = ""
+    }
+    private func request<B: Encodable & Sendable>(_ action: String, body: B) async {
         guard !busy else { return }
         busy = true; message = ""
+        defer { busy = false }
         let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
-        Task {
-            defer { busy = false }
-            do {
-                let result: AutomatedPaperSnapshot = try await WorkspaceAPI.request("v1/paper/automation/" + action,
-                    body: body, endpoint: binding.endpoint, token: binding.token)
-                guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
-                guard result.mode == "automated_paper", result.version == "prospective-paper-v1" else {
-                    throw WorkspaceError(message: "Unexpected paper strategy response; update the app/gateway together.")
-                }
-                snapshot = result
-                if action == "start" { requestID = UUID().uuidString }
-            } catch {
-                if binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription }
+        do {
+            let result: AutomatedPaperSnapshot = try await WorkspaceAPI.request("v1/paper/automation/" + action,
+                body: body, endpoint: binding.endpoint, token: binding.token)
+            guard binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+            guard result.mode == "automated_paper", result.version == "prospective-paper-v1" else {
+                throw WorkspaceError(message: "Your server needs updating to use this screen.")
             }
+            snapshot = result
+            if action == "start" { requestID = UUID().uuidString }
+        } catch {
+            if binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription }
+        }
+    }
+}
+
+struct AutomatedPaperRunDetail: View {
+    let run: AutomatedPaperRun
+    var stop: (() -> Void)?
+    var body: some View {
+        SubScreen(title: run.title) {
+            HStack { StatusBadge(run.statusLabel, tone: run.active ? .positive : .warning); Spacer() }
+            if !run.reason.isEmpty { Footnote(run.reason) }
+            SectionCard(title: "Position") {
+                DetailRow("Value", workspaceMoney(run.equity))
+                DetailRow("Cash", workspaceMoney(run.cash))
+                DetailRow("Shares", run.quantity)
+                DetailRow("Realised", workspaceMoney(run.realized, signed: true))
+                DetailRow("Modelled costs", workspaceMoney(run.costs))
+                DetailRow("Max drawdown", run.drawdownPercent)
+                if let pending = run.pending {
+                    DetailRow("Next decision", "\(pending.long ? "Long" : "Cash") for \(pending.session)")
+                } else if run.active {
+                    DetailRow("Next observation", run.next_session)
+                }
+                DetailRow("Last session", run.last_session ?? "None yet")
+                DetailRow("Started", gatewayDate(run.created_at))
+            }
+            SectionCard(title: "Rule", footer: "Protocol \(run.protocol.version) · \(run.protocol.schedule)") {
+                Text(run.protocol.rule).font(.footnote).foregroundStyle(Theme.textSecondary)
+            }
+            SectionCard(title: "History") {
+                if run.events.isEmpty {
+                    EmptyState(title: "No events yet", message: "Decisions and fills are listed here as they are recorded.")
+                } else {
+                    ForEach(run.events) { event in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(gatewayDate(event.at)).font(.caption).foregroundStyle(Theme.textTertiary)
+                            Text(event.message).font(.footnote).textSelection(.enabled)
+                        }.padding(.vertical, Spacing.xs)
+                    }
+                }
+            }
+            if let stop { Button("Stop this strategy") { stop() }.buttonStyle(SecondaryButtonStyle()) }
         }
     }
 }

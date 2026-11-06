@@ -75,12 +75,6 @@ class CoinbaseAccess(CoinbaseAdapter):
             raise CoinbaseError('Duplicate portfolio identity.')
         return clean
 
-    def balance(self, account):
-        result = self._request('GET', '/portfolios/' + identity(account)).get('breakdown', {})
-        if result.get('portfolio', {}).get('uuid') != account:
-            raise CoinbaseError('Portfolio identity mismatch.')
-        return result
-
     def product(self, product):
         return self._request('GET', '/products/' + identity(product))
 

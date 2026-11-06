@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, urlopen, build_opener, ProxyHandler, HTTPRedirectHandler
 from pathlib import Path
 from access_routes import ACCESS_ROUTES, access_request
+from broker_admission import AdmissionError
 from webull_service import BrokerError, WebullAdapter, WebullService
 from evaluation import load_evaluation
 from workspace_service import workspace_request, WORKSPACE_ROUTES, automation
@@ -479,7 +480,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = assistant(payload)
         except KronosError as error:
             return self.reply(503, {"error": str(error)})
-        except BrokerError as error:
+        except (BrokerError, AdmissionError) as error:
             return self.reply(409, {"error": str(error)})
         except (ValueError, TypeError):
             return self.reply(400, {"error": "Invalid request or proposal"})

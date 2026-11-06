@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 from broker_actions import BrokerActions
 from coinbase_access import CoinbaseAccess
+from broker_admission import AdmissionError
 from coinbase_service import CoinbaseError
 from webull_service import BrokerError
 
@@ -62,6 +63,6 @@ def access_request(path, payload):
             if set(payload) != {'id'}:
                 raise BrokerError('Expected only saved action ID.')
             return s.reconcile(payload['id']) if path.endswith('/reconcile') else s.status(payload['id'])
-    except CoinbaseError as error:
+    except (CoinbaseError, AdmissionError) as error:
         raise BrokerError(str(error)) from None
     raise BrokerError('Unsupported broker operation.')

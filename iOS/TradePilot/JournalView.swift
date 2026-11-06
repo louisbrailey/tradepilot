@@ -123,18 +123,53 @@ final class JournalStore {
     }
 }
 
-struct JournalView: View {
+extension JournalStore {
+    /// The latest entries for one mode, shaped for the assistant request body.
+    func context(mode: String, account: String? = nil, limit: Int = 30) -> [[String: String]] {
+        entries.filter { $0.mode == mode && (account == nil || $0.accountID == account) }.prefix(limit).map {
+            ["kind": $0.kind, "text": String($0.text.prefix(1000)), "strategy": $0.strategy,
+             "timestamp": $0.timestamp.ISO8601Format(), "mode": $0.mode, "session": $0.sessionID.uuidString]
+        }
+    }
+}
+
+/// User-facing names for journal identifiers.
+enum JournalLabels {
+    static func mode(_ raw: String) -> String {
+        switch raw {
+        case "demo": "Practice"
+        case "paper": "Paper"
+        case "historical_research": "Research"
+        case "webull_production": "Webull · Live"
+        case "webull_sandbox": "Webull · Sandbox"
+        default: raw.hasPrefix("webull_") ? "Webull" : titleCase(raw)
+        }
+    }
+    static func modeTone(_ raw: String) -> Tone {
+        switch raw {
+        case "demo": .practice
+        case "paper": .paper
+        case "historical_research": .accent
+        case "webull_production": .live
+        default: raw.hasPrefix("webull_") ? .warning : .neutral
+        }
+    }
+    static func kind(_ raw: String) -> String {
+        switch raw {
+        case "submission_result": "Sent to broker"
+        case "broker_status": "Broker update"
+        case "execution_sync": "Executions loaded"
+        case "paper_fill": "Paper fill"
+        default: titleCase(raw)
+        }
+    }
+    static func strategy(_ id: String) -> String { StrategyProfile.all.first { $0.id == id }?.title ?? titleCase(id) }
+}
+
+// MARK: - Research tab
+
+struct ResearchView: View {
     @Environment(AppStore.self) private var store
-    @State private var section = 0
-    @State private var reflectionTarget: UUID?
-    @State private var note = ""
-    @State private var thesis = ""
-    @State private var expectedOutcome = ""
-    @State private var observation = ""
-    @State private var lesson = ""
-    @State private var eventFilter = "all"
-    @State private var environmentFilter = "all"
-    @State private var strategyFilter = "all"
     @State private var researchText = ""
     @State private var researching = false
     @State private var evaluation: RecordedEvaluation?
@@ -142,190 +177,243 @@ struct JournalView: View {
     @State private var evaluationError = ""
     var body: some View {
         @Bindable var store = store
-        Screen(title: "Research & journal", isDemo: false) {
-            Picker("Section", selection: $section) { Text("Strategies").tag(0); Text("Journal").tag(1) }.pickerStyle(.segmented)
-            if let error = store.journal.error { Text(error).font(.caption).foregroundStyle(.orange) }
-            if section == 0 {
-                NavigationLink { KronosView() } label: { Label("Kronos forecasting lab", systemImage: "waveform.path") }.buttonStyle(MintButton())
-                NavigationLink { StrategyComparisonView() } label: { Label("Open strategy lab", systemImage: "chart.xyaxis.line") }.buttonStyle(MintButton())
-                NavigationLink { PaperTradingView() } label: { Label("Paper account & journal", systemImage: "book.pages") }
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Build evidence,\nthen build conviction.").font(.title.bold())
-                    Text("Strategy profiles guide research. Journal retrieval gives the AI context from previous actions; it does not retrain the model or prove that a strategy works.").font(.subheadline).foregroundStyle(Palette.muted)
+        Screen(title: "Research") {
+            SectionCard(title: "Tools") {
+                VStack(spacing: 0) {
+                    NavigationLink { StrategyComparisonView() } label: { NavigationRow(title: "Strategy lab", detail: "Trend, breakout and mean reversion after costs", icon: "chart.xyaxis.line") }
+                    Divider().overlay(Theme.separator)
+                    NavigationLink { KronosView() } label: { NavigationRow(title: "Forecast replay", detail: "Local model against held-out sessions", icon: "waveform.path") }
+                    Divider().overlay(Theme.separator)
+                    NavigationLink { AutomatedPaperView() } label: { NavigationRow(title: "Automated paper strategies", detail: "Forward-recorded SPY experiments", icon: "clock.arrow.circlepath", badge: StatusBadge("Paper", tone: .paper)) }
+                }.buttonStyle(RowButtonStyle())
+            }
+            SectionCard(title: "Market research", footer: store.aiEnabled ? "Research and the assistant run on your server." : "Turn on the server model in Settings to ask the assistant about research.") {
+                HStack(spacing: Spacing.m) {
+                    TextField("Symbol", text: $store.researchTicker).phoneSymbolInput().fieldStyle()
+                    Button(researching ? "Loading…" : "Load") { loadResearch() }.buttonStyle(PrimaryButtonStyle()).frame(width: 110).disabled(researching || store.researchTicker.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                Picker("Research strategy", selection: $store.strategyID) { ForEach(StrategyProfile.all) { profile in Text(profile.title).tag(profile.id) } }.tint(Palette.mint)
-                VStack(alignment: .leading, spacing: 14) {
-                    TextField("Research ticker, e.g. AAPL", text: $store.researchTicker).phoneSymbolInput()
-                    Button(researching ? "Loading research…" : "Load Massive research") {
-                        researching = true
-                        let ticker = store.researchTicker
-                        let endpoint = store.aiEndpoint, token = store.aiToken
-                        store.record("request", "Load Massive research for \(ticker)")
-                        Task {
-                            defer { researching = false }
-                            do {
-                                let text = try await AIService.research(endpoint: endpoint, token: token, ticker: ticker)
-                                guard store.aiEndpoint == endpoint, store.aiToken == token else { return }
-                                researchText = text
-                                store.record("research", researchText)
-                            } catch {
-                                guard store.aiEndpoint == endpoint, store.aiToken == token else { return }
-                                researchText = error.localizedDescription; store.record("error", researchText)
-                            }
-                        }
-                    }.disabled(researching)
-                    if !researchText.isEmpty { Text(researchText).font(.caption).textSelection(.enabled) }
-                    Toggle("Include Massive market research", isOn: $store.useMarketData).tint(Palette.mint)
-                    Toggle("Include recent journal context", isOn: $store.useJournalContext).tint(Palette.mint)
-                    Text("Requires your configured AI server. Massive stock history, dividends, options and Benzinga access are checked when requested. Quotes and snapshots may be delayed. Only the latest 30 journal entries are sent when enabled.").font(.caption).foregroundStyle(Palette.muted)
-                    Button {
-                        store.tab = 1
-                        store.send("Research \(store.researchTicker) for the \(store.strategyID) strategy. Separate market evidence, journal observations, backtest limitations and unanswered questions. Do not propose an order.")
-                    } label: { Label("Research with AI", systemImage: "sparkles").frame(maxWidth: .infinity) }.buttonStyle(MintButton()).disabled(!store.aiEnabled || store.busy)
-                }.card()
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Tested strategy results").font(.headline)
-                    Text("Review the recorded training, validation and final test. Loading this report does not rerun or tune the strategy.").font(.caption).foregroundStyle(Palette.muted)
-                    Button(loadingEvaluation ? "Loading recorded results…" : "View tested strategy results") {
-                        loadingEvaluation = true; evaluation = nil; evaluationError = ""
-                        let endpoint = store.aiEndpoint, token = store.aiToken
-                        store.journal.append(kind: "request", text: "View recorded historical strategy evaluation", strategy: "trend", accountID: "none", holdings: [], mode: "historical_research")
-                        Task {
-                            defer { loadingEvaluation = false }
-                            do {
-                                let result = try await AIService.evaluation(endpoint: endpoint, token: token)
-                                guard EvaluationValidation.connectionMatches(endpoint: endpoint, token: token, currentEndpoint: store.aiEndpoint, currentToken: store.aiToken) else { return }
-                                evaluation = result
-                                store.journal.append(kind: "research", text: result.conclusion, strategy: "trend", accountID: "none", reference: result.protocol_sha256, holdings: [], mode: "historical_research")
-                            } catch {
-                                guard EvaluationValidation.connectionMatches(endpoint: endpoint, token: token, currentEndpoint: store.aiEndpoint, currentToken: store.aiToken) else { return }
-                                evaluationError = error.localizedDescription
-                                store.journal.append(kind: "error", text: "Recorded evaluation unavailable", strategy: "trend", accountID: "none", holdings: [], mode: "historical_research")
-                            }
-                        }
-                    }.disabled(loadingEvaluation)
-                    if !evaluationError.isEmpty { Text(evaluationError).font(.caption).foregroundStyle(.orange) }
-                    if let evaluation { RecordedEvaluationCard(report: evaluation) }
-                }.card()
-                ForEach(StrategyProfile.all) { profile in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack { Text(profile.title).font(.headline); Spacer(); if store.strategyID == profile.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.mint) } }
-                        Text(profile.horizon.uppercased()).font(.caption2.monospaced()).foregroundStyle(Palette.mint)
-                        Text(profile.question).font(.subheadline)
-                        Text(profile.requirements).font(.caption).foregroundStyle(Palette.muted)
-                    }.card().onTapGesture { store.strategyID = profile.id }
+                if !researchText.isEmpty { Text(researchText).font(.footnote).textSelection(.enabled) }
+                Picker("Focus", selection: $store.strategyID) { ForEach(StrategyProfile.all) { profile in Text(profile.title).tag(profile.id) } }.pickerStyle(.menu)
+                if let profile = StrategyProfile.all.first(where: { $0.id == store.strategyID }) {
+                    Text(profile.question).font(.footnote).foregroundStyle(Theme.textSecondary)
+                    Footnote("\(profile.horizon). Needs: \(profile.requirements)")
                 }
-            } else {
-                Text("A record of every decision.").font(.title2.bold())
-                Text("Requests, reviews, approvals, outcomes and reflections are stored on this iPhone. Each event keeps its own demo or Webull environment, account, strategy and app session. No automatic retraining runs in the background.").font(.caption).foregroundStyle(Palette.muted)
-                VStack(spacing: 12) {
-                    Picker("Link reflection to event", selection: $reflectionTarget) {
-                        Text("Choose an existing event").tag(UUID?.none)
-                        ForEach(store.journal.entries.filter { $0.kind != "reflection" }) { entry in
-                            Text("\(entry.kind.capitalized) · \(entry.mode) · \(entry.accountID) · \(entry.timestamp.formatted(date: .abbreviated, time: .shortened)): \(entry.text.prefix(38))").tag(Optional(entry.id))
-                        }
-                    }
-                    if let targetID = reflectionTarget, let target = store.journal.entries.first(where: { $0.id == targetID }) {
-                        Text("Reflecting on: \(target.kind) · \(target.mode) · \(target.accountID) · \(target.timestamp.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(Palette.muted)
-                    }
-                    TextField("Thesis", text: $thesis, axis: .vertical).lineLimit(2...4)
-                    TextField("Expected outcome", text: $expectedOutcome, axis: .vertical).lineLimit(2...4)
-                    TextField("What happened", text: $observation, axis: .vertical).lineLimit(2...4)
-                    TextField("Lesson", text: $lesson, axis: .vertical).lineLimit(2...4)
-                    Button("Save structured reflection") {
-                        guard let targetID = reflectionTarget, let target = store.journal.entries.first(where: { $0.id == targetID }) else { return }
-                        store.journal.appendReflection(for: target, thesis: thesis, expectedOutcome: expectedOutcome, observation: observation, lesson: lesson)
-                        if store.journal.error == nil { thesis = ""; expectedOutcome = ""; observation = ""; lesson = ""; reflectionTarget = nil }
-                    }.disabled(store.journal.error != nil || reflectionTarget == nil || [thesis, expectedOutcome, observation, lesson].contains { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-                }.card()
-                VStack(spacing: 12) {
-                    TextField("General note for the demo workspace…", text: $note, axis: .vertical).lineLimit(2...5)
-                    Button("Save demo workspace note") {
-                        store.journal.append(kind: "note", text: note, strategy: store.strategyID, accountID: store.accountID, holdings: store.engine.holdings, mode: "demo")
-                        if store.journal.error == nil { note = "" }
-                    }.disabled(store.journal.error != nil || note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Text("To reflect on a Webull action, link a structured reflection to that specific event above; it keeps the event’s Webull environment and account.").font(.caption2).foregroundStyle(Palette.muted)
-                }.card()
-                let filteredEntries = store.journal.entries.filter { JournalEvidence.matches($0, environment: environmentFilter, strategy: strategyFilter, kind: eventFilter) }
-                let requests = filteredEntries.filter { $0.kind == "request" }.count
-                let notesAndReflections = filteredEntries.filter { $0.kind == "note" || $0.reflection != nil }.count
-                let brokerObservations = filteredEntries.filter { $0.kind == "broker_status" || $0.kind == "submission_result" }.count
-                let verifiedDemoFills = filteredEntries.filter(JournalEvidence.verifiedDemoFill).count
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Picker("Environment", selection: $environmentFilter) { Text("All environments").tag("all"); Text("Demo").tag("demo"); Text("Webull").tag("webull"); Text("Historical research").tag("research") }
-                        Picker("Strategy", selection: $strategyFilter) { Text("All strategies").tag("all"); ForEach(StrategyProfile.all) { Text($0.title).tag($0.id) } }
-                    }
-                    Picker("Event filter", selection: $eventFilter) { ForEach(["all", "request", "proposal", "approval", "submission_result", "broker_status", "outcome", "cancel", "note", "reflection", "assistant", "error"], id: \.self) { Text($0 == "all" ? "All events" : $0.capitalized).tag($0) } }
-                    Text("Activity: \(filteredEntries.count) · Requests: \(requests) · Notes & reflections: \(notesAndReflections) · Broker observations: \(brokerObservations) · Simulated fills: \(verifiedDemoFills)").font(.caption).foregroundStyle(Palette.muted)
-                    Text("Observations record what was reported. Simulated fills are shown separately. Broker status updates are not a verified trading performance record.").font(.caption2).foregroundStyle(Palette.muted)
-                }
-                HStack {
-                    ShareLink(item: store.journal.exportText) { Label("Export", systemImage: "square.and.arrow.up") }
-                }.font(.caption)
-                ForEach(filteredEntries) { entry in
-                    VStack(alignment: .leading, spacing: 9) {
-                        HStack { Text(entry.kind.uppercased()).font(.caption2.bold()).foregroundStyle(Palette.mint); Spacer(); Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(Palette.muted) }
-                        Text(entry.text).font(.subheadline).textSelection(.enabled)
-                        Text("\(entry.strategy) · \(entry.mode) · account \(entry.accountID) · session \(entry.sessionID.uuidString.prefix(6))").font(.caption2).foregroundStyle(Palette.muted)
-                        if let reflection = entry.reflection { Text("Linked event: \(reflection.eventID.uuidString.prefix(8))").font(.caption2).foregroundStyle(Palette.muted) }
-                    }.card()
-                }
-                if store.journal.entries.isEmpty {
-                    Text("Your first request will start the journal.").foregroundStyle(Palette.muted)
-                } else if filteredEntries.isEmpty {
-                    Text("No journal events match these filters.").foregroundStyle(Palette.muted)
-                }
+                Button { store.openAssistant("Research \(store.researchTicker) for the \(store.strategyID) strategy. Separate market evidence, journal observations, backtest limitations and unanswered questions. Do not propose an order.") } label: {
+                    Label("Ask the assistant", systemImage: "bubble.left.and.text.bubble.right")
+                }.buttonStyle(SecondaryButtonStyle()).disabled(!store.aiEnabled || store.busy)
+            }
+            SectionCard(title: "Recorded backtest", footer: "Loading the report does not rerun or tune anything.") {
+                Button(loadingEvaluation ? "Loading…" : "View backtest") { loadEvaluation() }.buttonStyle(SecondaryButtonStyle()).disabled(loadingEvaluation)
+                OutcomeNotice(text: evaluationError, kind: .error)
+                if let evaluation { RecordedEvaluationCard(report: evaluation) }
             }
         }
-        .onChange(of: store.aiEndpoint) { _, _ in evaluation = nil; evaluationError = ""; researchText = "" }
-        .onChange(of: store.aiToken) { _, _ in evaluation = nil; evaluationError = ""; researchText = "" }
+        .onConnectionChange(store) { evaluation = nil; evaluationError = ""; researchText = "" }
+    }
+    private func loadResearch() {
+        researching = true
+        let ticker = store.researchTicker.uppercased().trimmingCharacters(in: .whitespaces)
+        let endpoint = store.aiEndpoint, token = store.aiToken
+        store.record("request", "Load market research for \(ticker)")
+        Task {
+            defer { researching = false }
+            do {
+                let text = try await AIService.research(endpoint: endpoint, token: token, ticker: ticker)
+                guard store.aiEndpoint == endpoint, store.aiToken == token else { return }
+                researchText = text
+                store.record("research", researchText)
+            } catch {
+                guard store.aiEndpoint == endpoint, store.aiToken == token else { return }
+                researchText = error.localizedDescription; store.record("error", researchText)
+            }
+        }
+    }
+    private func loadEvaluation() {
+        loadingEvaluation = true; evaluation = nil; evaluationError = ""
+        let endpoint = store.aiEndpoint, token = store.aiToken
+        store.journal.append(kind: "request", text: "View recorded historical strategy evaluation", strategy: "trend", accountID: "none", holdings: [], mode: "historical_research")
+        Task {
+            defer { loadingEvaluation = false }
+            do {
+                let result = try await AIService.evaluation(endpoint: endpoint, token: token)
+                guard EvaluationValidation.connectionMatches(endpoint: endpoint, token: token, currentEndpoint: store.aiEndpoint, currentToken: store.aiToken) else { return }
+                evaluation = result
+                store.journal.append(kind: "research", text: result.conclusion, strategy: "trend", accountID: "none", reference: result.protocol_sha256, holdings: [], mode: "historical_research")
+            } catch {
+                guard EvaluationValidation.connectionMatches(endpoint: endpoint, token: token, currentEndpoint: store.aiEndpoint, currentToken: store.aiToken) else { return }
+                evaluationError = error.localizedDescription
+                store.journal.append(kind: "error", text: "Recorded evaluation unavailable", strategy: "trend", accountID: "none", holdings: [], mode: "historical_research")
+            }
+        }
+    }
+}
+
+// MARK: - Journal tab
+
+struct JournalView: View {
+    @Environment(AppStore.self) private var store
+    @State private var eventFilter = "all"
+    @State private var environmentFilter = "all"
+    @State private var strategyFilter = "all"
+    @State private var showNote = false
+    @State private var reflectionTarget: JournalEntry?
+    private let kinds = ["request", "proposal", "approval", "submission_result", "broker_status", "outcome", "paper_fill", "cancel", "note", "reflection", "research", "assistant", "error"]
+    var body: some View {
+        let filtered = store.journal.entries.filter { JournalEvidence.matches($0, environment: environmentFilter, strategy: strategyFilter, kind: eventFilter) }
+        Screen(title: "Journal") {
+            if let error = store.journal.error { InlineNotice(kind: .error, message: error) }
+            HStack(spacing: Spacing.l) {
+                MetricTile(label: "Entries", value: "\(filtered.count)")
+                MetricTile(label: "Notes", value: "\(filtered.filter { $0.kind == "note" || $0.reflection != nil }.count)")
+                MetricTile(label: "Broker updates", value: "\(filtered.filter { $0.kind == "broker_status" || $0.kind == "submission_result" }.count)")
+                MetricTile(label: "Practice fills", value: "\(filtered.filter(JournalEvidence.verifiedDemoFill).count)")
+            }
+            HStack(spacing: Spacing.s) {
+                Menu {
+                    Picker("Account", selection: $environmentFilter) { Text("All accounts").tag("all"); Text("Practice").tag("demo"); Text("Webull").tag("webull"); Text("Research").tag("research") }
+                    Picker("Strategy", selection: $strategyFilter) { Text("All strategies").tag("all"); ForEach(StrategyProfile.all) { Text($0.title).tag($0.id) } }
+                    Picker("Event", selection: $eventFilter) { Text("All events").tag("all"); ForEach(kinds, id: \.self) { Text(JournalLabels.kind($0)).tag($0) } }
+                } label: {
+                    Label(filterSummary, systemImage: "line.3.horizontal.decrease.circle").font(.footnote.weight(.semibold))
+                        .padding(.horizontal, Spacing.m).padding(.vertical, Spacing.s).background(Theme.surface, in: Capsule())
+                }
+                Spacer()
+                ShareLink(item: store.journal.exportText) { Image(systemName: "square.and.arrow.up").accessibilityLabel("Export journal") }
+                Button { showNote = true } label: { Image(systemName: "square.and.pencil").accessibilityLabel("Add note") }.disabled(store.journal.error != nil)
+            }
+            if store.journal.entries.isEmpty {
+                EmptyState(title: "No entries yet", message: "Requests, reviews, confirmations and notes are recorded here, on this phone.", icon: "book.closed")
+            } else if filtered.isEmpty {
+                EmptyState(title: "Nothing matches", message: "Try a different filter.", icon: "line.3.horizontal.decrease.circle")
+            }
+            ForEach(filtered) { entry in
+                SectionCard {
+                    HStack(spacing: Spacing.s) {
+                        StatusBadge(JournalLabels.kind(entry.kind), tone: entry.kind == "error" ? .negative : .neutral)
+                        StatusBadge(JournalLabels.mode(entry.mode), tone: JournalLabels.modeTone(entry.mode))
+                        Spacer()
+                        Text(relativeTime(entry.timestamp)).font(.caption).foregroundStyle(Theme.textTertiary)
+                    }
+                    Text(entry.text).font(.subheadline).textSelection(.enabled).lineLimit(8)
+                    HStack {
+                        Text([JournalLabels.strategy(entry.strategy), store.engine.accounts.contains(where: { $0.id == entry.accountID }) ? store.engine.accountName(entry.accountID) : nil].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(Theme.textTertiary)
+                        Spacer()
+                        if entry.kind != "reflection" {
+                            Button("Reflect") { reflectionTarget = entry }.font(.caption.weight(.semibold)).disabled(store.journal.error != nil)
+                        }
+                    }
+                }
+            }
+            Footnote("Broker updates record what the broker reported; they are not a verified performance record.")
+        }
+        .sheet(isPresented: $showNote) { NoteSheet() }
+        .sheet(item: $reflectionTarget) { entry in ReflectionSheet(target: entry) }
+    }
+    private var filterSummary: String {
+        var parts: [String] = []
+        if environmentFilter != "all" { parts.append(environmentFilter == "demo" ? "Practice" : environmentFilter.capitalized) }
+        if strategyFilter != "all" { parts.append(JournalLabels.strategy(strategyFilter)) }
+        if eventFilter != "all" { parts.append(JournalLabels.kind(eventFilter)) }
+        return parts.isEmpty ? "Filter" : parts.joined(separator: " · ")
+    }
+}
+
+struct NoteSheet: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var note = ""
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: Spacing.l) {
+                TextField("What did you notice?", text: $note, axis: .vertical).lineLimit(4...10).fieldStyle()
+                Footnote("Saved on this phone with the current practice account and strategy focus.")
+                Spacer()
+            }
+            .padding(Spacing.l).background(Theme.background)
+            .navigationTitle("New note").phoneInlineTitle()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        store.journal.append(kind: "note", text: note, strategy: store.strategyID, accountID: store.accountID, holdings: store.engine.holdings, mode: "demo")
+                        if store.journal.error == nil { dismiss() }
+                    }.disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }.tint(Theme.accent)
+    }
+}
+
+struct ReflectionSheet: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let target: JournalEntry
+    @State private var thesis = ""
+    @State private var expectedOutcome = ""
+    @State private var observation = ""
+    @State private var lesson = ""
+    private var complete: Bool { ![thesis, expectedOutcome, observation, lesson].contains { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Spacing.l) {
+                    SectionCard(title: "Reflecting on") {
+                        HStack { StatusBadge(JournalLabels.kind(target.kind)); StatusBadge(JournalLabels.mode(target.mode), tone: JournalLabels.modeTone(target.mode)); Spacer(); Text(relativeTime(target.timestamp)).font(.caption).foregroundStyle(Theme.textTertiary) }
+                        Text(target.text).font(.footnote).lineLimit(4)
+                    }
+                    TextField("Thesis", text: $thesis, axis: .vertical).lineLimit(2...4).fieldStyle()
+                    TextField("Expected outcome", text: $expectedOutcome, axis: .vertical).lineLimit(2...4).fieldStyle()
+                    TextField("What happened", text: $observation, axis: .vertical).lineLimit(2...4).fieldStyle()
+                    TextField("Lesson", text: $lesson, axis: .vertical).lineLimit(2...4).fieldStyle()
+                    Footnote("The reflection keeps this entry’s account and strategy.")
+                }.padding(Spacing.l)
+            }
+            .background(Theme.background)
+            .navigationTitle("Reflection").phoneInlineTitle()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        store.journal.appendReflection(for: target, thesis: thesis, expectedOutcome: expectedOutcome, observation: observation, lesson: lesson)
+                        if store.journal.error == nil { dismiss() }
+                    }.disabled(!complete || store.journal.error != nil)
+                }
+            }
+        }.tint(Theme.accent)
     }
 }
 
 private struct RecordedEvaluationCard: View {
     let report: RecordedEvaluation
-    private func percent(_ value: Double) -> String { String(format: "%+.2f%%", value) }
     private func points(_ value: Double) -> String { String(format: "%+.2f pp", value) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Recorded strategy evaluation").font(.title3.bold())
-            Text(report.conclusion).font(.subheadline.bold()).foregroundStyle(.orange)
-            Text("\(report.rows.count) of \(report.expected_symbols) symbols · \(report.source_start)–\(report.source_end)").font(.caption).foregroundStyle(Palette.muted)
-            Text("60% training → 20% validation → 20% final test").font(.caption.bold())
-            Text("Final period already observed · 10 bps cost per side").font(.caption).foregroundStyle(Palette.muted)
-            Text("Swipe the table to compare results.").font(.caption2).foregroundStyle(Palette.muted)
-            ScrollView(.horizontal) {
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
-                    GridRow {
-                        Text("Symbol"); Text("SMA"); Text("Validation"); Text("Final return"); Text("Benchmark"); Text("Difference")
-                    }.font(.caption.bold())
-                    ForEach(report.rows) { row in
-                        GridRow {
-                            Text(row.symbol).bold(); Text("\(row.selected_window) bars")
-                            Text(row.validation_passed ? "Pass" : "Fail")
-                            Text(percent(row.holdout_return_pct)); Text(percent(row.benchmark_return_pct)); Text(points(row.excess_return_pct))
-                        }.font(.caption.monospacedDigit())
+        VStack(alignment: .leading, spacing: Spacing.m) {
+            InlineNotice(kind: .warning, message: report.conclusion)
+            Footnote("\(report.rows.count) of \(report.expected_symbols) symbols, \(report.source_start) to \(report.source_end). Trained on 60%, validated on 20%, tested on the final 20%, at 10 bps per side.")
+            ForEach(report.rows) { row in
+                VStack(alignment: .leading, spacing: Spacing.s) {
+                    HStack {
+                        Text(row.symbol).font(.subheadline.weight(.semibold))
+                        Text("SMA \(row.selected_window)").font(.caption).foregroundStyle(Theme.textTertiary)
+                        Spacer()
+                        StatusBadge(row.validation_passed ? "Validated" : "Failed validation", tone: row.validation_passed ? .positive : .neutral)
                     }
-                }.padding(.vertical, 4)
+                    HStack(spacing: Spacing.m) {
+                        MetricTile(label: "Final", value: percent(row.holdout_return_pct, signed: true), tone: row.holdout_return_pct >= 0 ? .positive : .negative)
+                        MetricTile(label: "Benchmark", value: percent(row.benchmark_return_pct, signed: true))
+                        MetricTile(label: "Difference", value: points(row.excess_return_pct), tone: row.excess_return_pct >= 0 ? .positive : .negative)
+                    }
+                    Footnote("\(row.bar_count) bars · \(row.fills) fills · drawdown \(percent(row.max_drawdown_pct)) · " + row.cost_sensitivity.map { "\($0.bps_per_side) bps \(percent($0.return_pct, signed: true))" }.joined(separator: ", "))
+                }
+                .padding(.vertical, Spacing.xs)
+                Divider().overlay(Theme.separator)
             }
-            DisclosureGroup("Sample windows and cost stress") {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(report.rows) { row in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("\(row.symbol) · \(row.bar_count) daily bars · \(row.fills) final-period fills").font(.caption.bold())
-                            Text("Final test: \(row.holdout_start)–\(row.holdout_end)").font(.caption)
-                            Text("Validation difference: \(points(row.validation_excess_pct)) · final drawdown: \(String(format: "%.2f", row.max_drawdown_pct))%").font(.caption)
-                            Text(row.cost_sensitivity.map { "\($0.bps_per_side) bps: \(percent($0.return_pct))" }.joined(separator: " · ")).font(.caption2.monospacedDigit())
-                        }
-                    }
-                }.padding(.top, 8)
-            }.font(.caption)
             if !report.unavailable_symbols.isEmpty {
-                Text("Unavailable: \(report.unavailable_symbols.joined(separator: ", ")). Missing results are not replaced with simulated data.").font(.caption).foregroundStyle(.orange)
+                InlineNotice(kind: .warning, message: "Unavailable: \(report.unavailable_symbols.joined(separator: ", ")). Missing results are not replaced with simulated data.")
             }
-            ForEach(report.limitations, id: \.self) { Text($0).font(.caption).foregroundStyle(Palette.muted) }
-            Text("Recorded \(report.evaluated_at.prefix(10)) · protocol \(report.protocol_sha256.prefix(12))").font(.caption2.monospaced()).foregroundStyle(Palette.muted)
+            ForEach(report.limitations, id: \.self) { Footnote($0) }
+            Footnote("Recorded \(report.evaluated_at.prefix(10)) · protocol \(report.protocol_sha256.prefix(12))")
         }
     }
 }
