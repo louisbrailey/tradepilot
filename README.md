@@ -22,7 +22,9 @@ See [confirmed broker access, supported scope and safety controls](BROKER-ACCESS
 
 Open `iOS/TradePilot.xcodeproj` in Xcode. Select TradePilot and an installed iPhone simulator to run. A physical installation requires Apple signing and a trusted, paired iPhone with Developer Mode turned on; see [WEBULL-SETUP.md](WEBULL-SETUP.md) and `scripts/install-iphone.sh`.
 
-Phone connection checks and the assistant toggle are under **Accounts → Settings** (also the gear on Home). The current development profile expires November 11, 2026; refresh signing and reinstall before expiry.
+Phone connection checks and the assistant toggle are under **Accounts → Settings** (also the gear on Home).
+
+Free development signing expires every seven days. The `com.tradepilot.keep-signed` launch agent (`scripts/keep-iphone-signed.py`) checks hourly and, within two days of expiry, rebuilds the committed `main` branch with a fresh profile and installs it whenever the iPhone is reachable over USB or Wi-Fi. It never copies pairing data or launches the app. Check it with `python3 scripts/keep-iphone-signed.py status`; remove it with `python3 scripts/keep-iphone-signed.py remove`. Its log is in `~/Library/Application Support/TradePilot/keep-signed/`.
 
 The already-deployed local gateway is described in [LOCAL-SERVICE.md](LOCAL-SERVICE.md). Configure inference with [LOCAL-AI.md](LOCAL-AI.md). Credentials and private runtime files are deliberately excluded from the source ZIP.
 
