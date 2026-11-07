@@ -115,7 +115,7 @@ class WorkspaceTests(unittest.TestCase):
         from datetime import datetime, timedelta, timezone
         stamp = datetime.combine(datetime.now(timezone.utc).date()-timedelta(days=1), datetime.min.time(), timezone.utc).timestamp()*1000
         bars = [{'t':stamp,'o':1e-8,'h':1e-8,'l':1e-8,'c':1e-8}]
-        with patch.object(workspace, 'Massive') as provider:
+        with patch.object(workspace, 'Massive') as provider, patch.object(workspace, 'live_reference', return_value=None):
             provider.return_value.get.return_value = {'available':True,'adjusted':True,'results':bars}
             with self.assertRaises(BrokerError): workspace.paper_quote('AAPL')
             provider.return_value.get.return_value['adjusted'] = False
@@ -134,7 +134,8 @@ class WorkspaceTests(unittest.TestCase):
         friday = datetime(2026, 9, 4, tzinfo=timezone.utc).timestamp()*1000  # before Labor Day
         tuesday_open = datetime(2026, 9, 8, 10, tzinfo=new_york).timestamp()
         bars = [{'t':friday,'o':100,'h':101,'l':99,'c':100}]
-        with patch.object(workspace, 'Massive') as provider, patch.object(workspace, 'datetime', wraps=datetime) as clock:
+        with patch.object(workspace, 'Massive') as provider, patch.object(workspace, 'datetime', wraps=datetime) as clock, \
+                patch.object(workspace, 'live_reference', return_value=None):
             clock.now.return_value = datetime(2026, 9, 8, 14, tzinfo=timezone.utc)
             provider.return_value.get.return_value = {'available':True,'adjusted':False,'results':bars}
             quote = workspace.paper_quote('AAPL')
@@ -142,6 +143,49 @@ class WorkspaceTests(unittest.TestCase):
             service = PaperService(Path(folder)/'paper.sqlite', clock=lambda: tuesday_open)
             review = service.create_review(dict(symbol='AAPL', side='buy', quantity='1', client_id='holiday_01'), quote)
         self.assertEqual(review['status'], 'REVIEW')
+
+    def test_paper_reference_prefers_the_current_session_price(self):
+        import market_service
+        from datetime import datetime
+        new_york = market_service.ET
+        midday = datetime(2026, 11, 6, 13, 5, tzinfo=new_york).timestamp()
+        evening = datetime(2026, 11, 6, 19, 0, tzinfo=new_york).timestamp()
+        def provider(updated):
+            class Provider:
+                def get(self, path, params=None):
+                    return {"tickers": [{"ticker": "AAPL", "day": {"c": 342.37}, "updated": int(updated * 1e9)}]}
+            return Provider()
+        with patch.object(workspace, 'market_data', return_value=market_service.MarketService(provider(midday), clock=lambda: midday + 30)), \
+                patch.object(workspace, 'recent_bars') as bars:
+            live = workspace.paper_quote('AAPL')
+        bars.assert_not_called()
+        self.assertEqual((live['price'], live['as_of'], live['delayed']), ('342.37', midday, True))
+        self.assertIn('latest consolidated price', live['source'])
+        with patch.object(workspace, 'market_data', return_value=market_service.MarketService(provider(evening), clock=lambda: evening)):
+            quote = workspace.paper_quote('AAPL')
+        self.assertEqual(quote['as_of'], datetime(2026, 11, 6, 16, tzinfo=new_york).timestamp())
+        self.assertIn('official close', quote['source'])
+        with tempfile.TemporaryDirectory() as folder:
+            service = PaperService(Path(folder)/'paper.sqlite3', clock=lambda: midday + 60)
+            review = service.create_review(dict(symbol='AAPL', side='buy', quantity='1', client_id='live_ref_01'), live)
+        self.assertEqual(review['reference_price'], '342.37')
+
+    def test_paper_reference_falls_back_to_completed_close_without_a_day_bar(self):
+        import market_service
+        class Empty:
+            def get(self, path, params=None):
+                return {"tickers": [{"ticker": "AAPL", "day": {"c": 0}, "prevDay": {"c": 340}}]}
+        class Down:
+            def get(self, path, params=None):
+                raise market_service.MarketDataError("down")
+        for provider in (Empty(), Down()):
+            with self.subTest(provider=type(provider).__name__), \
+                    patch.object(workspace, 'market_data', return_value=market_service.MarketService(provider)), \
+                    patch.object(workspace, 'recent_bars', return_value=[{'t': 1793923200000, 'c': 340.5}]) as bars:
+                quote = workspace.paper_quote('AAPL')
+                bars.assert_called_once()
+                self.assertEqual(quote['price'], '340.5')
+                self.assertIn('completed daily bar', quote['source'])
 
     def test_authenticated_route_exercises_actual_paper_dispatch(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'TRADEPILOT_RUNTIME':folder,'APP_ACCESS_TOKEN':'x'*32}):

@@ -66,6 +66,15 @@ class QuoteNormalisationTests(unittest.TestCase):
         self.assertEqual((quote["bid"], quote["ask"]), (109.99, 110.01))
         self.assertAlmostEqual(quote["updated"], FRIDAY_2PM)
 
+    def test_nanosecond_and_millisecond_timestamps_are_both_read(self):
+        row = snapshot("AAPL", 110.0, 100.0, updated=FRIDAY_2PM)
+        row.pop("min")
+        self.assertAlmostEqual(market.quote_from_snapshot(row)["updated"], FRIDAY_2PM, places=3)
+        row["updated"] = int((FRIDAY_2PM + 9) * 1e9)
+        self.assertAlmostEqual(market.quote_from_snapshot(row)["updated"], FRIDAY_2PM + 9, places=3)
+        self.assertIsNone(market._epoch(float("inf"), 1e9))
+        self.assertIsNone(market._epoch(True, 1e3))
+
     def test_overnight_cleared_day_bar_shows_last_close_without_change(self):
         row = snapshot("AAPL", 110.0, 100.0)
         row["day"] = {"o": 0, "h": 0, "l": 0, "c": 0, "v": 0}

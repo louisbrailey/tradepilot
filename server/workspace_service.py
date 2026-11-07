@@ -13,6 +13,7 @@ from paper_automation import AutomationService
 from coinbase_service import CoinbaseAdapter, CoinbaseError
 from strategies import compare_strategies
 from webull_service import BrokerError
+from market_service import service as market_data
 
 AUTOMATION_ROUTES = ("/v1/paper/automation/state", "/v1/paper/automation/start", "/v1/paper/automation/pause", "/v1/paper/automation/check")
 WORKSPACE_ROUTES = AUTOMATION_ROUTES + ("/v1/paper/state", "/v1/paper/review", "/v1/paper/confirm", "/v1/paper/note", "/v1/paper/mark", "/v1/coinbase/state", "/v1/strategies")
@@ -57,9 +58,28 @@ def recent_bars(symbol, days, adjusted):
     return validated_daily_bars(result.get("results"), minimum=1, start=str(start), end=str(end), require_ohlc=True)
 
 
+def live_reference(symbol):
+    """Current-session consolidated price from the market data service, or None."""
+    try:
+        reference = market_data().reference_price(symbol)
+    except Exception:
+        return None
+    if not reference:
+        return None
+    price = Decimal(str(reference["price"]))
+    if not price.is_finite() or price <= 0:
+        return None
+    label = "official close" if reference["session_close"] else "latest consolidated price"
+    return {"symbol": symbol, "price": format(price, "f"), "as_of": reference["as_of"],
+            "source": f"Massive snapshot {label} (may be delayed; not an executable quote)", "delayed": True}
+
+
 def paper_quote(symbol):
-    # Completed unadjusted close only. An explicitly delayed simulation reference,
-    # not a current executable quote or a historical split-adjusted trading price.
+    # Prefer the current session's consolidated price; otherwise the latest completed unadjusted
+    # close. Either is an explicitly delayed simulation reference, never an executable quote.
+    live = live_reference(ticker(symbol))
+    if live:
+        return live
     row = recent_bars(ticker(symbol), 7, False)[-1]
     day = datetime.fromtimestamp(row["t"] / 1000, timezone.utc).date()
     close = datetime.combine(day, datetime.min.time(), ZoneInfo("America/New_York")).replace(hour=16)

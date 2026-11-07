@@ -146,10 +146,10 @@ def _round(value, digits=4):
 
 
 def _epoch(value, scale):
-    number = _number(value, positive=True)
-    if number is None:
+    # Provider timestamps arrive in milliseconds or nanoseconds, beyond _number's magnitude bound.
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
         return None
-    seconds = number / scale
+    seconds = value / scale
     return seconds if 946684800 <= seconds <= time.time() + 86400 else None
 
 
@@ -358,6 +358,30 @@ class MarketService:
             return None
         points, _ = _regular_sessions(bars, 1)
         return [bar["c"] for bar in points] if len(points) >= 2 else None
+
+    def reference_price(self, ticker):
+        """Latest consolidated price in the current or just-finished session, for paper simulations.
+
+        Returns None when the provider has no current day bar (overnight reset, unknown symbol or
+        outage) so callers can fall back to a completed daily close.
+        """
+        try:
+            row = _dict(self._snapshots([valid_symbol(ticker)]).get(ticker))
+        except MarketDataError:
+            return None
+        day, minute = _dict(row.get("day")), _dict(row.get("min"))
+        price = _number(day.get("c"), positive=True)
+        stamps = [stamp for stamp in (_epoch(row.get("updated"), 1e9), _epoch(_dict(row.get("lastTrade")).get("t"), 1e9),
+                                      _epoch(minute.get("t"), 1e3)) if stamp]
+        if price is None or not stamps:
+            return None
+        as_of = min(max(stamps), self.clock())
+        at = datetime.fromtimestamp(as_of, ET)
+        close = datetime.combine(at.date(), datetime.min.time(), ET) + timedelta(minutes=_close_minute(at.date()))
+        # After the close the day bar holds the official close; date it at the close, not at later updates.
+        if at >= close:
+            as_of = close.timestamp()
+        return {"price": price, "as_of": as_of, "session_close": at >= close}
 
     # Routes
 
