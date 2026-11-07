@@ -18,7 +18,7 @@
 - [x] Markets tab, quote pages, price alerts and current-session paper prices (0.5.0): full gate, live read-only data smoke and simulator checks. See reports/release-0.5.0-2026-11-06.md.
 - [x] Deploy 0.5.0 gateway code to the Mac with `scripts/update-local-gateway.py apply` (owner-approved; backup `code-backup-update-20261106-200945`; health check passed).
 - [x] Install 0.5.0 (build 6) on the USB iPhone 16 (devicectl confirms the version).
-- [ ] Trust the developer profile on the iPhone, open 0.5.0, and check Markets, a quote page and an alert on the device.
+- [ ] Finish the iOS 27.2 setup screens on the iPhone, trust the developer profile if asked, open 0.5.0, and check Markets, a quote page and an alert on the device.
 - [ ] Sign in to Xcode (Settings → Accounts) with the Apple ID for team ANWNGW59GP so `com.tradepilot.keep-signed` can renew signing before November 11, 00:35 PT.
 - [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy.
 - [ ] Stage and verify the gateway on the home PC, then move the active ledger and pair the iPhone. See [home PC setup](../HOME-PC.md).
