@@ -29,15 +29,9 @@ November 6, 2026. Source `main` at the commit that adds this report. Built and c
 
 The Mac was heavily loaded during checks (load average above 500 from staging VMs and other jobs). The new simulator's trust daemon stalled until it was restarted; that affected only the QA simulator.
 
-## Not done yet
+## Deployment and remaining steps
 
-- **Gateway deployment.** The running Mac gateway still has 0.4.1 code, so the phone app will report that the server needs an update on Markets until it is deployed. Claude's attempt to deploy was blocked by the Claude Code permission policy for production changes. To deploy:
-
-  ```sh
-  "$HOME/Library/Application Support/TradePilot/gateway-20260923/venv/bin/python" scripts/update-local-gateway.py apply
-  ```
-
-  The paper scheduler restarts with the gateway; its next scheduled session is November 9.
+- **Gateway deployment: done.** Claude's first attempt was blocked by the Claude Code permission policy for production changes; the owner then approved it. `scripts/update-local-gateway.py apply` installed 2 changed and 2 new files from `89d2274` at 20:09 PT, backed up the replaced files to `private/code-backup-update-20261106-200945`, restarted the launch agent and passed the pinned health check (alerts and market routes answered). Afterwards the gateway served real quotes and all three automated paper runs were still running. Roll back with `scripts/update-local-gateway.py rollback --backup code-backup-update-20261106-200945` if needed.
 - **Phone launch.** `scripts/install-iphone.sh` built, signed and installed 0.5.0 (build 6) on the USB iPhone 16 (`devicectl` reports version 0.5.0, bundle version 6). iOS refused to launch it: the developer profile has not been explicitly trusted on the phone, as with 0.4.1. On the iPhone open Settings → General → VPN & Device Management, choose the Apple Development profile and trust or verify it (the phone needs an internet connection), then open TradePilot. The development signing profile expires November 11, 2026 at 00:35 Pacific; rebuild with Xcode signed in before then.
 - **Push notifications** need a paid Apple Developer membership and an APNs key; until then alerts appear when the app is open.
-- The GitHub repository is public; nothing secret is in its history (gitleaks and trufflehog found nothing), but device names, hostnames and setup details are visible. Pushing these commits is held until the owner decides on visibility.
+- The GitHub repository is public by the owner's choice; gitleaks and trufflehog found no secrets in its history. The commits were pushed to `main` (`cc6f6bc..89d2274`) and the repository checks passed.

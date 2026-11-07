@@ -9,7 +9,7 @@ See [LATEST-STATUS.md](LATEST-STATUS.md) for dated verification and [tasks/todo.
 - Explicitly confirmed manual paper trading with a durable ledger and journal.
 - Three fixed automated SPY paper experiments with a separate scheduler, portfolios and data/risk stops; see [AUTOMATED-PAPER.md](AUTOMATED-PAPER.md).
 - Local AI, Massive research, fixed strategy comparisons and Kronos historical replay.
-- Markets: watchlist, index ETFs, large-cap movers, symbol search and quote pages with charts, statistics, dividends and headlines; gateway-checked price alerts shown in the app (0.5.0, pending deployment and phone install).
+- Markets: watchlist, index ETFs, large-cap movers, symbol search and quote pages with charts, statistics, dividends and headlines; gateway-checked price alerts shown in the app (0.5.0, deployed to the Mac gateway; on the iPhone after the developer profile is trusted).
 - Sample portfolio and demo assistant kept visibly separate from real account data.
 
 Broker write functionality in source is not production-qualified by these read-only checks. Live trading, cancellation and transfers remain disabled in the current deployment. The Coinbase key has no Trade or Transfer grants. No strategy has qualified for live adoption.
