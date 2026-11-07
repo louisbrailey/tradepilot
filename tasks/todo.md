@@ -20,7 +20,7 @@
 - [x] Install 0.5.0 (build 6) on the USB iPhone 16 (devicectl confirms the version).
 - [ ] Finish the iOS 27.2 setup screens on the iPhone, trust the developer profile if asked, open 0.5.0, and check Markets, a quote page and an alert on the device.
 - [ ] Sign in to Xcode (Settings → Accounts) with the Apple ID for team ANWNGW59GP so `com.tradepilot.keep-signed` can renew signing before November 11, 00:35 PT.
-- [ ] Deploy the Coinbase USD pricing route (`/v1/market/crypto`) with `scripts/update-local-gateway.py apply` (needs owner approval).
+- [x] Deploy the Coinbase USD pricing route (`/v1/market/crypto`) with `scripts/update-local-gateway.py apply` (owner-approved; deployed November 7, 14:57 PT).
 - [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy.
 - [ ] Stage and verify the gateway on the home PC, then move the active ledger and pair the iPhone. See [home PC setup](../HOME-PC.md).
 
