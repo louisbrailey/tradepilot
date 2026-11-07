@@ -488,12 +488,25 @@ struct PaperTradingView: View {
 struct CoinbaseView: View {
     @Environment(AppStore.self) private var store
     @State private var snapshot: CoinbaseSnapshot?
+    @State private var prices: CryptoPrices?
     @State private var message = ""
     @State private var busy = false
     @State private var showEmptyAccounts = false
+    private var priceByCurrency: [String: CryptoPrice] {
+        Dictionary((prices?.prices ?? []).map { ($0.currency, $0) }, uniquingKeysWith: { first, _ in first })
+    }
     private var visibleAccounts: [CoinbaseAccount] {
         (snapshot?.accounts ?? []).filter { showEmptyAccounts || !$0.hasZeroBalance }
-            .sorted { $0.currency == $1.currency ? $0.id < $1.id : $0.currency < $1.currency }
+            .sorted { left, right in
+                let a = usdValue(left) ?? -1, b = usdValue(right) ?? -1
+                if a != b { return a > b }
+                return left.currency == right.currency ? left.id < right.id : left.currency < right.currency
+            }
+    }
+    /// Balance × provider USD price; nil when the asset has no price.
+    private func usdValue(_ account: CoinbaseAccount) -> Decimal? {
+        guard let units = strictDecimal(account.total, allowNegative: false), let price = priceByCurrency[account.currency]?.price else { return nil }
+        return units * Decimal(price)
     }
     var body: some View {
         SubScreen(title: "Coinbase", refresh: { await refresh() }) {
@@ -505,7 +518,14 @@ struct CoinbaseView: View {
                     if busy { ProgressView() }
                 }
                 Footnote("Account loaded \(relativeTime(snapshot.as_of))")
-                SectionCard(title: "Asset balances", footer: "Amounts are shown in units of each asset.") {
+                let valued = snapshot.accounts.compactMap(usdValue)
+                if !valued.isEmpty, let prices {
+                    SectionCard {
+                        HeroMetric(label: "Estimated value", value: money(valued.reduce(0, +)))
+                        Footnote("\(valued.count) priced asset\(valued.count == 1 ? "" : "s") at USD prices from Massive as of \(MarketFormat.time(prices.as_of)). Prices can be delayed and exclude fees; this is not a Coinbase quote.\(prices.missing.isEmpty ? "" : " No price for \(prices.missing.joined(separator: ", ")).")")
+                    }
+                }
+                SectionCard(title: "Asset balances", footer: prices == nil ? "Amounts are shown in units of each asset." : "Values in USD; units are shown under each asset.") {
                     Toggle("Show zero balances", isOn: $showEmptyAccounts).font(.subheadline)
                     if snapshot.accounts.isEmpty {
                         EmptyState(title: "No accounts", message: "Coinbase returned no asset accounts for this key.")
@@ -516,8 +536,16 @@ struct CoinbaseView: View {
                             ForEach(visibleAccounts) { a in
                                 if a.id != visibleAccounts.first?.id { Divider().overlay(Theme.separator) }
                                 let hasHold = (strictDecimal(a.hold) ?? 0) > 0
-                                HoldingRow(symbol: a.currency, detail: hasHold ? "\(assetUnits(a.hold)) on hold" : a.name,
-                                           value: assetUnits(a.total), change: hasHold ? "\(assetUnits(a.available)) available" : nil)
+                                if let value = usdValue(a), let price = priceByCurrency[a.currency] {
+                                    HoldingRow(symbol: a.currency,
+                                               detail: "\(assetUnits(a.total)) \(a.currency)" + (hasHold ? " · \(assetUnits(a.hold)) on hold" : ""),
+                                               value: money(value),
+                                               change: price.change_percent.map { "\(MarketFormat.percent($0)) 24h" },
+                                               changeTone: MarketFormat.tone(price.change_percent))
+                                } else {
+                                    HoldingRow(symbol: a.currency, detail: hasHold ? "\(assetUnits(a.hold)) on hold" : a.name,
+                                               value: assetUnits(a.total), change: hasHold ? "\(assetUnits(a.available)) available" : nil)
+                                }
                             }
                         }
                         Footnote("\(visibleAccounts.count) of \(snapshot.accounts.count) asset accounts shown.")
@@ -534,7 +562,7 @@ struct CoinbaseView: View {
             }
         }
         .task { if snapshot == nil { await refresh() } }
-        .onConnectionChange(store) { snapshot = nil; message = "" }
+        .onConnectionChange(store) { snapshot = nil; prices = nil; message = "" }
     }
     private func assetUnits(_ value: String) -> String { strictDecimal(value, allowNegative: false).map(units) ?? "—" }
 
@@ -550,7 +578,15 @@ struct CoinbaseView: View {
                 throw WorkspaceError(message: "Coinbase returned an unexpected balance response. Pull down to refresh.")
             }
             snapshot = result; message = ""
-        } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
+        } catch {
+            if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription }
+            return
+        }
+        // USD values are optional; balances stay in units if prices are unavailable or the server is older.
+        let held = Array(Set((snapshot?.accounts ?? []).filter { (strictDecimal($0.total, allowNegative: false) ?? 0) > 0 }.map(\.currency))).sorted()
+        guard !held.isEmpty, let priced = try? await MarketAPI.crypto(held, endpoint: b.endpoint, token: b.token),
+              b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+        prices = priced
     }
 }
 

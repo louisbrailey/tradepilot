@@ -343,6 +343,35 @@ class ChartTests(unittest.TestCase):
                 MarketService(FakeProvider({})).chart(payload)
 
 
+class CryptoTests(unittest.TestCase):
+    def test_crypto_prices_use_latest_trade_par_usd_and_report_missing(self):
+        rows = {"tickers": [
+            {"ticker": "X:BTCUSD", "lastTrade": {"p": 76078.93, "t": int(FRIDAY_2PM * 1000)}, "day": {"c": 76054.4},
+             "prevDay": {"c": 75731.04}, "updated": int(FRIDAY_2PM * 1e9)},
+            {"ticker": "X:SHIBUSD", "day": {"c": 0.0000123456789}, "prevDay": {"c": 0.00001}},
+            {"ticker": "X:BADUSD", "lastTrade": {"p": -1}}]}
+        provider = FakeProvider({"/v2/snapshot/locale/global/markets/crypto/tickers": rows})
+        result = MarketService(provider, clock=lambda: FRIDAY_2PM).crypto({"currencies": ["BTC", "USD", "SHIB", "BAD", "BTC", "ZZZ"]})
+        prices = {item["currency"]: item for item in result["prices"]}
+        self.assertEqual(prices["BTC"]["price"], 76078.93)
+        self.assertAlmostEqual(prices["BTC"]["change_percent"], 0.4596, places=3)
+        self.assertAlmostEqual(prices["BTC"]["updated"], FRIDAY_2PM, places=3)
+        self.assertEqual(prices["USD"]["price"], 1.0)
+        self.assertEqual(prices["SHIB"]["price"], 0.0000123457)
+        self.assertEqual(result["missing"], ["BAD", "ZZZ"])
+        self.assertEqual(provider.calls[0][1]["tickers"], "X:BADUSD,X:BTCUSD,X:SHIBUSD,X:ZZZUSD")
+
+    def test_usd_only_needs_no_provider_and_requests_are_validated(self):
+        provider = FakeProvider({})
+        self.assertEqual(MarketService(provider).crypto({"currencies": ["USD"]})["prices"][0]["price"], 1.0)
+        self.assertEqual(provider.calls, [])
+        for payload in ({}, {"currencies": []}, {"currencies": ["btc"]}, {"currencies": ["B"]},
+                        {"currencies": ["BTC", 5]}, {"currencies": ["X" * 11]}, {"currencies": ["A1"] * 61},
+                        {"currencies": ["BTC"], "extra": 1}):
+            with self.subTest(payload=payload), self.assertRaises(MarketRequestError):
+                MarketService(provider).crypto(payload)
+
+
 class CacheAndClientTests(unittest.TestCase):
     def test_cache_expires_and_evicts(self):
         now = [0.0]
@@ -431,7 +460,7 @@ class GatewayRouteTests(unittest.TestCase):
                 self.assertEqual(market.market_request(path, {}), path.rsplit("/", 1)[1])
             with self.assertRaises(MarketRequestError):
                 market.market_request("/v1/market/other", {})
-        self.assertEqual(calls, ["overview", "quotes", "search", "symbol", "chart"])
+        self.assertEqual(calls, ["overview", "quotes", "search", "symbol", "chart", "crypto"])
 
 
 if __name__ == "__main__":

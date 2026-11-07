@@ -188,6 +188,24 @@ enum MarketAPI {
     }
 }
 
+// MARK: - Crypto prices for Coinbase balances
+
+struct CryptoPrice: Decodable, Sendable { let currency: String; let price: Double; let change_percent: Double?; let updated: Double? }
+struct CryptoPrices: Decodable, Sendable { let prices: [CryptoPrice]; let missing: [String]; let as_of: Double }
+private struct CurrenciesRequest: Encodable, Sendable { let currencies: [String] }
+
+extension MarketAPI {
+    static func crypto(_ currencies: [String], endpoint: String, token: String) async throws -> CryptoPrices {
+        let requested = Array(currencies.prefix(60))
+        let result: CryptoPrices = try await post("v1/market/crypto", CurrenciesRequest(currencies: requested), endpoint: endpoint, token: token)
+        let allowed = Set(requested)
+        guard result.prices.allSatisfy({ allowed.contains($0.currency) && $0.price.isFinite && $0.price > 0 }) else {
+            throw WorkspaceError(message: "Your server returned prices for other assets.")
+        }
+        return result
+    }
+}
+
 // MARK: - Price alerts (recorded by the gateway; they never place orders)
 
 struct PriceAlert: Decodable, Sendable, Identifiable, Equatable {

@@ -22,8 +22,10 @@ from paper_calendar import ET, next_session, session as is_session
 from research import NoRedirects
 
 MARKET_ROUTES = ("/v1/market/overview", "/v1/market/quotes", "/v1/market/search",
-                 "/v1/market/symbol", "/v1/market/chart")
+                 "/v1/market/symbol", "/v1/market/chart", "/v1/market/crypto")
 SYMBOL = re.compile(r"[A-Z][A-Z0-9.\-]{0,14}")
+CURRENCY = re.compile(r"[A-Z0-9]{2,10}")
+MAX_CURRENCIES = 60
 QUERY = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .&'\-]{0,39}")
 RANGES = ("1D", "1W", "1M", "3M", "6M", "YTD", "1Y", "5Y")
 MAX_SYMBOLS = 40
@@ -260,6 +262,29 @@ def display_name(value):
     if len(shouting) >= 2:  # e.g. "BERKSHIRE HATHAWAY"; a lone brand such as "NVIDIA" stays as written
         name = " ".join(word.capitalize() if word in shouting else word for word in name.split())
     return name.strip() or None
+
+
+def _any_epoch(value):
+    """Provider timestamps in seconds, milliseconds, microseconds or nanoseconds."""
+    for scale in (1e9, 1e6, 1e3, 1):
+        stamp = _epoch(value, scale)
+        if stamp:
+            return stamp
+    return None
+
+
+def crypto_quote(row):
+    """USD price for one crypto pair snapshot: the latest trade, else the day's close; change from the prior day."""
+    if not isinstance(row, dict):
+        return None
+    trade, day, previous = _dict(row.get("lastTrade")), _dict(row.get("day")), _dict(row.get("prevDay"))
+    price = _number(trade.get("p"), True) or _number(day.get("c"), True) or _number(_dict(row.get("min")).get("c"), True)
+    if price is None:
+        return None
+    prior = _number(previous.get("c"), True)
+    stamps = [stamp for stamp in (_any_epoch(row.get("updated")), _any_epoch(trade.get("t"))) if stamp]
+    return {"price": round(price, 10), "change_percent": _round((price - prior) / prior * 100) if prior else None,
+            "updated": max(stamps) if stamps else None}
 
 
 def _bar(row, daily):
@@ -603,6 +628,32 @@ class MarketService:
                           "sentiment": sentiment})
         return items[:8]
 
+    def crypto(self, payload):
+        """USD prices for crypto balances. USD itself is priced at par; unknown pairs are reported missing."""
+        _exact(payload, ("currencies",))
+        requested = payload["currencies"]
+        if not isinstance(requested, list) or not 0 < len(requested) <= MAX_CURRENCIES:
+            raise MarketRequestError(f"Request between 1 and {MAX_CURRENCIES} currencies.")
+        if not all(isinstance(item, str) and CURRENCY.fullmatch(item) for item in requested):
+            raise MarketRequestError("Use currency codes such as BTC.")
+        currencies = list(dict.fromkeys(requested))
+        pairs = sorted(f"X:{currency}USD" for currency in currencies if currency != "USD")
+        rows = {}
+        if pairs:
+            body = self._get("/v2/snapshot/locale/global/markets/crypto/tickers", {"tickers": ",".join(pairs)}, 15, 900)
+            rows = {row.get("ticker"): row for row in _dict(body).get("tickers") or [] if isinstance(row, dict)}
+        prices, missing = [], []
+        for currency in currencies:
+            if currency == "USD":
+                prices.append({"currency": "USD", "price": 1.0, "change_percent": 0.0, "updated": None})
+                continue
+            quote = crypto_quote(rows.get(f"X:{currency}USD"))
+            if quote:
+                prices.append({"currency": currency, **quote})
+            else:
+                missing.append(currency)
+        return {"prices": prices, "missing": missing, "source": "Massive", "as_of": self.clock()}
+
     def chart(self, payload):
         _exact(payload, ("symbol", "range"))
         ticker, span = valid_symbol(payload["symbol"]), payload["range"]
@@ -657,4 +708,6 @@ def market_request(path, payload):
         return current.symbol(payload)
     if path == "/v1/market/chart":
         return current.chart(payload)
+    if path == "/v1/market/crypto":
+        return current.crypto(payload)
     raise MarketRequestError("Unknown market route.")

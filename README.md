@@ -11,6 +11,7 @@ Kronos is available under **Research → Kronos forecasting lab** for local hist
 - Automated prospective paper strategies with a private scheduler, separate portfolios and explicit stop/data gates.
 - SwiftUI app with five tabs. Home shows paper equity and links to practice, automated strategies and broker accounts. Markets has the session status, index ETFs, a watchlist, large-cap movers, symbol search and a quote page with an interactive chart, key statistics and headlines; see [Markets](MARKETS.md). Accounts groups the broker connections and settings. Research hosts strategy comparison, forecast replay, market research and recorded backtests. Journal keeps activity and notes. The practice assistant opens from Home. A shared design system supplies the theme, metric tiles, and order confirmation sheet.
 - Paper orders priced at the current session's consolidated price, or the last close when none exists, with modeled slippage.
+- Coinbase balances valued in USD with an estimated total and 24-hour changes (read-only; prices can be delayed).
 - Local Ollama inference or optional OpenAI, strict structured proposals, independent order validation, and separate confirmation.
 - Webull long-stock DAY market/limit order adapter with durable no-duplicate submission and execution evidence.
 - Real Massive/Benzinga research and reproducible multi-stage historical evaluation with results in the app.
