@@ -33,6 +33,7 @@ STATE_DIR = Path.home() / "Library" / "Application Support" / "TradePilot" / "ke
 PROFILES = Path.home() / "Library" / "Developer" / "Xcode" / "UserData" / "Provisioning Profiles"
 REFRESH_WITHIN = 48 * 3600
 DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer"
+BUILD_ROOT = Path("/private/tmp")  # outside synced folders, as for manual iPhone builds
 
 
 def log(message: str) -> None:
@@ -135,7 +136,7 @@ def run(device: str, force: bool = False, now: float | None = None) -> str:
         target = backup / path.name
         shutil.move(str(path), str(target))
         moved.append((target, path))
-    with tempfile.TemporaryDirectory(prefix="tradepilot-sign-", dir="/private/tmp") as folder:
+    with tempfile.TemporaryDirectory(prefix="tradepilot-sign-", dir=BUILD_ROOT if BUILD_ROOT.is_dir() else None) as folder:
         source, derived = Path(folder) / "source", Path(folder) / "derived"
         source.mkdir()
         try:

@@ -32,7 +32,7 @@ class KeepSignedTests(unittest.TestCase):
         base = Path(self.folder.name)
         self.profiles, self.state = base / "profiles", base / "state"
         self.profiles.mkdir()
-        for name, value in (("PROFILES", self.profiles), ("STATE_DIR", self.state)):
+        for name, value in (("PROFILES", self.profiles), ("STATE_DIR", self.state), ("BUILD_ROOT", base)):
             patcher = mock.patch.object(MODULE, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
