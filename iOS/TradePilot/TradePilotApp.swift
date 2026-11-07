@@ -16,6 +16,8 @@ struct TradePilotApp: App {
         else if screen == "strategies" { NavigationStack { StrategyComparisonView() } }
         else if screen == "coinbase" { NavigationStack { CoinbaseView() } }
         else if screen == "markets" { MarketsView() }
+        else if screen == "alerts" { NavigationStack { AlertsListView() } }
+        else if screen == "alert" { AlertComposer(symbol: ProcessInfo.processInfo.environment["TRADEPILOT_SYMBOL"] ?? "AAPL", price: 342.37) { _ in } }
         else if screen == "symbol" { NavigationStack { SymbolDetailView(symbol: ProcessInfo.processInfo.environment["TRADEPILOT_SYMBOL"] ?? "AAPL") } }
         else { RootView() }
         #else
@@ -206,6 +208,7 @@ struct HomeView: View {
                     NavigationLink { AutomatedPaperView() } label: { NavigationRow(title: "Automated strategies", detail: "Scheduled paper experiments", icon: "clock.arrow.circlepath") }
                 }.buttonStyle(RowButtonStyle())
             }
+            HomeMarketsCard()
             SectionCard(title: "Broker accounts") {
                 VStack(spacing: 0) {
                     NavigationLink { WebullView() } label: { NavigationRow(title: "Webull", detail: "Stocks and ETFs", icon: "building.columns") }

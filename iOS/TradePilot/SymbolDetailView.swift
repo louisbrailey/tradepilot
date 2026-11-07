@@ -6,6 +6,7 @@ import SwiftUI
 struct SymbolDetailView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     let symbol: String
     @State private var page: SymbolPage?
     @State private var pageBinding: BrokerConnectionBinding?
@@ -132,15 +133,11 @@ struct SymbolDetailView: View {
             .frame(height: 220)
             .frame(maxWidth: .infinity)
             .opacity(chartLoading && history != nil ? 0.5 : 1)
-            HStack(spacing: Spacing.xs) {
-                ForEach(ChartRange.allCases) { option in
-                    Button(option.rawValue) { range = option; selection = nil }
-                        .font(.caption.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 32)
-                        .foregroundStyle(range == option ? Theme.onAccent : Theme.textSecondary)
-                        .background(range == option ? Theme.accent : Color.clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .buttonStyle(RowButtonStyle())
-                        .accessibilityAddTraits(range == option ? .isSelected : [])
+            Group {
+                if typeSize.isAccessibilitySize {
+                    ScrollView(.horizontal, showsIndicators: false) { rangeChips(fill: false) }
+                } else {
+                    rangeChips(fill: true)
                 }
             }
             .sensoryFeedback(.selection, trigger: range)
@@ -150,8 +147,28 @@ struct SymbolDetailView: View {
         }
     }
 
+    private func rangeChips(fill: Bool) -> some View {
+        HStack(spacing: Spacing.xs) {
+            ForEach(ChartRange.allCases) { option in
+                Button { range = option; selection = nil } label: {
+                    Text(option.rawValue).lineLimit(1).fixedSize()
+                        .padding(.horizontal, fill ? 0 : Spacing.m)
+                        .frame(maxWidth: fill ? .infinity : nil, minHeight: 32)
+                        .contentShape(Rectangle())
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(range == option ? Theme.onAccent : Theme.textSecondary)
+                .background(range == option ? Theme.accent : Color.clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .buttonStyle(RowButtonStyle())
+                .accessibilityLabel(option.changeLabel)
+                .accessibilityAddTraits(range == option ? .isSelected : [])
+            }
+        }
+    }
+
     private var actions: some View {
-        HStack(spacing: Spacing.m) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: Spacing.m)) : AnyLayout(HStackLayout(spacing: Spacing.m))
+        return layout {
             NavigationLink { PaperTradingView(prefillSymbol: symbol) } label: {
                 Label("Trade on paper", systemImage: "arrow.left.arrow.right")
             }
@@ -204,16 +221,24 @@ struct SymbolDetailView: View {
 
     private func statsCard(_ page: SymbolPage) -> some View {
         let stats = page.stats, quote = page.quote
+        let rows: [(String, String)] = [
+            ("Open", MarketFormat.price(stats.open)), ("Prev close", MarketFormat.price(stats.previous_close)),
+            ("Day high", MarketFormat.price(stats.high)), ("Day low", MarketFormat.price(stats.low)),
+            ("Volume", MarketFormat.compact(stats.volume)), ("Avg volume", MarketFormat.compact(stats.average_volume)),
+            ("Market cap", MarketFormat.compactMoney(stats.market_cap)), ("P/E ratio", MarketFormat.ratio(stats.pe_ratio)),
+            ("EPS (TTM)", stats.eps.map { MarketFormat.price($0) } ?? "—"),
+            ("Dividend yield", stats.dividend_yield.map { String(format: "%.2f%%", $0) } ?? "—"),
+            ("Bid / ask", quote.flatMap { q in q.bid.flatMap { bid in q.ask.map { "\(MarketFormat.price(bid)) / \(MarketFormat.price($0))" } } } ?? "—"),
+            ("VWAP", MarketFormat.price(stats.vwap)),
+        ]
         return SectionCard(title: "Key statistics") {
-            Grid(alignment: .leading, horizontalSpacing: Spacing.xl, verticalSpacing: Spacing.m) {
-                GridRow { stat("Open", MarketFormat.price(stats.open)); stat("Prev close", MarketFormat.price(stats.previous_close)) }
-                GridRow { stat("Day high", MarketFormat.price(stats.high)); stat("Day low", MarketFormat.price(stats.low)) }
-                GridRow { stat("Volume", MarketFormat.compact(stats.volume)); stat("Avg volume", MarketFormat.compact(stats.average_volume)) }
-                GridRow { stat("Market cap", MarketFormat.compactMoney(stats.market_cap)); stat("P/E ratio", MarketFormat.ratio(stats.pe_ratio)) }
-                GridRow { stat("EPS (TTM)", stats.eps.map { MarketFormat.price($0) } ?? "—"); stat("Dividend yield", stats.dividend_yield.map { String(format: "%.2f%%", $0) } ?? "—") }
-                GridRow {
-                    stat("Bid / ask", quote.flatMap { q in q.bid.flatMap { bid in q.ask.map { "\(MarketFormat.price(bid)) / \(MarketFormat.price($0))" } } } ?? "—")
-                    stat("VWAP", MarketFormat.price(stats.vwap))
+            if typeSize.isAccessibilitySize {
+                VStack(spacing: Spacing.s) { ForEach(rows, id: \.0) { DetailRow($0.0, $0.1) } }
+            } else {
+                Grid(alignment: .leading, horizontalSpacing: Spacing.xl, verticalSpacing: Spacing.m) {
+                    ForEach(Array(stride(from: 0, to: rows.count, by: 2)), id: \.self) { index in
+                        GridRow { stat(rows[index].0, rows[index].1); stat(rows[index + 1].0, rows[index + 1].1) }
+                    }
                 }
             }
             Divider().overlay(Theme.separator)

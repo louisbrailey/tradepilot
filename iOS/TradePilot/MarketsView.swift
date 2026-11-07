@@ -396,6 +396,65 @@ struct WatchButton: View {
     }
 }
 
+// MARK: - Home summary
+
+/// Compact market summary for Home: session status and index ETFs, linking to the Markets tab.
+struct HomeMarketsCard: View {
+    @Environment(AppStore.self) private var store
+    @State private var loaded: (binding: BrokerConnectionBinding, overview: MarketOverview)?
+    @State private var failed = false
+
+    private var binding: BrokerConnectionBinding { .init(endpoint: store.aiEndpoint, token: store.aiToken) }
+
+    var body: some View {
+        SectionCard {
+            HStack {
+                Text("Markets").font(.headline).accessibilityAddTraits(.isHeader)
+                Spacer()
+                Button("Open") { store.tab = 4 }.font(.footnote.weight(.semibold))
+            }
+            if let overview = loaded?.binding == binding ? loaded?.overview : nil {
+                MarketSessionPill(status: overview.status)
+                VStack(spacing: 0) {
+                    ForEach(overview.indices) { quote in
+                        if quote.id != overview.indices.first?.id { Divider().overlay(Theme.separator) }
+                        Button { store.tab = 4 } label: {
+                            HStack(spacing: Spacing.m) {
+                                Text(quote.label ?? quote.symbol).font(.subheadline).foregroundStyle(Theme.textPrimary)
+                                Spacer(minLength: Spacing.s)
+                                Text(MarketFormat.price(quote.price)).font(.subheadline.weight(.semibold)).monospacedDigit()
+                                    .foregroundStyle(Theme.textPrimary)
+                                Text(MarketFormat.percent(quote.change_percent)).font(.subheadline.weight(.semibold)).monospacedDigit()
+                                    .foregroundStyle(MarketFormat.tone(quote.change).color).frame(minWidth: 64, alignment: .trailing)
+                            }
+                            .padding(.vertical, Spacing.s).contentShape(Rectangle())
+                        }
+                        .buttonStyle(RowButtonStyle())
+                        .accessibilityLabel("\(quote.label ?? quote.symbol), \(MarketFormat.price(quote.price)), \(MarketFormat.percent(quote.change_percent))")
+                    }
+                }
+                Footnote("Indices shown with their ETFs. Prices can be delayed.")
+            } else if failed || !store.hasServerSettings {
+                Text(store.hasServerSettings ? "Market data is unavailable right now." : "Connect your server to see markets.")
+                    .font(.subheadline).foregroundStyle(Theme.textSecondary)
+            } else {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, Spacing.s)
+            }
+        }
+        .task(id: binding) { await load() }
+    }
+
+    private func load() async {
+        let request = binding
+        guard store.hasServerSettings else { return }
+        do {
+            let overview = try await MarketAPI.overview(endpoint: request.endpoint, token: request.token)
+            guard request == binding else { return }
+            loaded = (request, overview); failed = false
+        } catch { if request == binding { failed = true } }
+    }
+}
+
 // MARK: - Watchlist editor
 
 struct WatchlistEditor: View {

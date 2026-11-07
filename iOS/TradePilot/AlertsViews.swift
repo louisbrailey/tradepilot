@@ -43,7 +43,7 @@ struct AlertComposer: View {
                         Footnote("Last price \(MarketFormat.price(price)).\(reached ? " \(symbol) is already \(direction) this price, so the alert will trigger at the next check." : "")")
                     }
                     OutcomeNotice(text: message, kind: .error)
-                    Footnote("Your server checks about once a minute during pre-market, regular and after-hours trading. Only prices after you create the alert count. Alerts never place orders, and open the app to see them.")
+                    Footnote("Your server checks about once a minute during pre-market, regular and after-hours trading, and only prices after you create the alert count. Alerts never place orders. Open the app to see triggered alerts.")
                 }
                 .padding(Spacing.l)
             }
