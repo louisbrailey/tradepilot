@@ -115,6 +115,22 @@ SCHEMA = {
     },
     "required": ["kind", "message", "side", "quantity", "symbol"],
 }
+# Ollama can constrain the fields by reply kind during generation. Keep the
+# independent validation below even when the provider receives this grammar.
+OLLAMA_SCHEMA = {"oneOf": [
+    {**SCHEMA, "properties": {**SCHEMA["properties"],
+        "kind": {"type": "string", "enum": ["message", "portfolio"]},
+        "side": {"type": "null"},
+        "quantity": {"type": "null"},
+        "symbol": {"type": "null"},
+    }},
+    {**SCHEMA, "properties": {**SCHEMA["properties"],
+        "kind": {"const": "trade"},
+        "side": {"type": "string", "enum": ["buy", "sell"]},
+        "quantity": {"type": "string"},
+        "symbol": {"type": "string"},
+    }},
+]}
 INSTRUCTIONS = """You are TradePilot, an assistant inside a DEMO investment app.
 All provided accounts and prices are fictional. Do not claim access to live data,
 news outside the supplied market_research, brokerage connections, or trade execution. There are no
@@ -258,7 +274,7 @@ def local_model_completion(model, context, instructions):
             or metadata["details"].get("format") != "gguf"
             or not isinstance(metadata.get("model_info"), dict) or not metadata["model_info"]):
         raise RuntimeError("The configured Ollama model is not verified as installed local weights")
-    body = {"model": model, "stream": False, "format": SCHEMA, "think": False,
+    body = {"model": model, "stream": False, "format": OLLAMA_SCHEMA, "think": False,
             "messages": [
                 {"role": "system", "content": instructions + "\nReturn only JSON matching this schema: " + json.dumps(SCHEMA)},
                 {"role": "user", "content": json.dumps(context)}],
