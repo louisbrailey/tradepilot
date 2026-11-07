@@ -645,7 +645,7 @@ class MarketService:
         prices, missing = [], []
         for currency in currencies:
             if currency == "USD":
-                prices.append({"currency": "USD", "price": 1.0, "change_percent": 0.0, "updated": None})
+                prices.append({"currency": "USD", "price": 1.0, "change_percent": None, "updated": None})
                 continue
             quote = crypto_quote(rows.get(f"X:{currency}USD"))
             if quote:
