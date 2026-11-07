@@ -15,6 +15,8 @@ struct TradePilotApp: App {
         else if screen == "paper" { NavigationStack { PaperTradingView() } }
         else if screen == "strategies" { NavigationStack { StrategyComparisonView() } }
         else if screen == "coinbase" { NavigationStack { CoinbaseView() } }
+        else if screen == "markets" { MarketsView() }
+        else if screen == "symbol" { NavigationStack { SymbolDetailView(symbol: ProcessInfo.processInfo.environment["TRADEPILOT_SYMBOL"] ?? "AAPL") } }
         else { RootView() }
         #else
         RootView()
@@ -37,6 +39,7 @@ final class AppStore {
     }
     var engine = DemoEngine()
     var journal = JournalStore()
+    var watchlist = WatchlistStore()
     var strategyID = "long_term"
     var researchTicker = "AAPL"
     var useMarketData = false
@@ -156,6 +159,7 @@ struct RootView: View {
         @Bindable var store = store
         TabView(selection: $store.tab) {
             HomeView().tabItem { Label("Home", systemImage: "house") }.tag(0)
+            MarketsView().tabItem { Label("Markets", systemImage: "chart.line.uptrend.xyaxis") }.tag(4)
             AccountsView().tabItem { Label("Accounts", systemImage: "building.columns") }.tag(1)
             ResearchView().tabItem { Label("Research", systemImage: "chart.xyaxis.line") }.tag(2)
             JournalView().tabItem { Label("Journal", systemImage: "book.closed") }.tag(3)

@@ -32,6 +32,7 @@ struct KronosView: View {
     @State private var report: KronosReport?
     @State private var message = ""
     @State private var saved = false
+    init(ticker: String = "AAPL") { _ticker = State(initialValue: ticker) }
 
     var body: some View {
         SubScreen(title: "Forecast replay") {

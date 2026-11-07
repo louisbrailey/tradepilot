@@ -19,6 +19,7 @@ cp "$PROJECT_DIR/scripts/journal-smoke.swift" "$CHECK_DIR/journal/main.swift"
 swiftc -swift-version 6 -module-cache-path "$CHECK_DIR/cache" -I "$CHECK_DIR" -L "$CHECK_DIR" \
   -lTradeCore -Xlinker -rpath -Xlinker "$CHECK_DIR" "$CHECK_DIR/journal/TradePilotApp.swift" \
   "$PROJECT_DIR/iOS/TradePilot/AIService.swift" "$PROJECT_DIR/iOS/TradePilot/JournalView.swift" "$PROJECT_DIR/iOS/TradePilot/WebullView.swift" "$PROJECT_DIR/iOS/TradePilot/WorkspaceViews.swift" "$PROJECT_DIR/iOS/TradePilot/KronosView.swift" "$PROJECT_DIR/iOS/TradePilot/DesignSystem.swift" \
+  "$PROJECT_DIR/iOS/TradePilot/MarketData.swift" "$PROJECT_DIR/iOS/TradePilot/MarketComponents.swift" "$PROJECT_DIR/iOS/TradePilot/MarketsView.swift" "$PROJECT_DIR/iOS/TradePilot/SymbolDetailView.swift" \
   "$CHECK_DIR/journal/main.swift" -o "$CHECK_DIR/journal-check"
 "$CHECK_DIR/journal-check" "$CHECK_DIR/journal/test.json"
 mkdir -p "$CHECK_DIR/connection"
@@ -27,6 +28,7 @@ cp "$PROJECT_DIR/scripts/connection-smoke.swift" "$CHECK_DIR/connection/main.swi
 swiftc -swift-version 6 -module-cache-path "$CHECK_DIR/cache" -I "$CHECK_DIR" -L "$CHECK_DIR" \
   -lTradeCore -Xlinker -rpath -Xlinker "$CHECK_DIR" "$CHECK_DIR/connection/TradePilotApp.swift" \
   "$PROJECT_DIR/iOS/TradePilot/AIService.swift" "$PROJECT_DIR/iOS/TradePilot/JournalView.swift" "$PROJECT_DIR/iOS/TradePilot/WebullView.swift" "$PROJECT_DIR/iOS/TradePilot/WorkspaceViews.swift" "$PROJECT_DIR/iOS/TradePilot/KronosView.swift" "$PROJECT_DIR/iOS/TradePilot/DesignSystem.swift" \
+  "$PROJECT_DIR/iOS/TradePilot/MarketData.swift" "$PROJECT_DIR/iOS/TradePilot/MarketComponents.swift" "$PROJECT_DIR/iOS/TradePilot/MarketsView.swift" "$PROJECT_DIR/iOS/TradePilot/SymbolDetailView.swift" \
   "$CHECK_DIR/connection/main.swift" -o "$CHECK_DIR/connection-check"
 PYTHONPATH="$PROJECT_DIR/server" python3 "$PROJECT_DIR/scripts/workspace-fixtures.py" "$CHECK_DIR/connection/workspace"
 "$CHECK_DIR/connection-check" "$CHECK_DIR/connection/workspace"

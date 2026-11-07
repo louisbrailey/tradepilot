@@ -16,6 +16,10 @@
 		A00000000000000000000039 /* WorkspaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038; };
 		A00000000000000000000041 /* KronosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000040; };
 		A00000000000000000000043 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000042; };
+		A00000000000000000000051 /* MarketData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000050; };
+		A00000000000000000000053 /* MarketComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000052; };
+		A00000000000000000000055 /* MarketsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000054; };
+		A00000000000000000000057 /* SymbolDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000056; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +32,10 @@
 		A00000000000000000000038 /* WorkspaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/WorkspaceViews.swift; sourceTree = "<group>"; };
 		A00000000000000000000040 /* KronosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/KronosView.swift; sourceTree = "<group>"; };
 		A00000000000000000000042 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/DesignSystem.swift; sourceTree = "<group>"; };
+		A00000000000000000000050 /* MarketData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/MarketData.swift; sourceTree = "<group>"; };
+		A00000000000000000000052 /* MarketComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/MarketComponents.swift; sourceTree = "<group>"; };
+		A00000000000000000000054 /* MarketsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/MarketsView.swift; sourceTree = "<group>"; };
+		A00000000000000000000056 /* SymbolDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/SymbolDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,6 +61,10 @@
 				A00000000000000000000038 /* WorkspaceViews.swift */,
 				A00000000000000000000040 /* KronosView.swift */,
 				A00000000000000000000042 /* DesignSystem.swift */,
+				A00000000000000000000050 /* MarketData.swift */,
+				A00000000000000000000052 /* MarketComponents.swift */,
+				A00000000000000000000054 /* MarketsView.swift */,
+				A00000000000000000000056 /* SymbolDetailView.swift */,
 				A00000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -146,6 +158,10 @@
 				A00000000000000000000039 /* WorkspaceViews.swift in Sources */,
 				A00000000000000000000041 /* KronosView.swift in Sources */,
 				A00000000000000000000043 /* DesignSystem.swift in Sources */,
+				A00000000000000000000051 /* MarketData.swift in Sources */,
+				A00000000000000000000053 /* MarketComponents.swift in Sources */,
+				A00000000000000000000055 /* MarketsView.swift in Sources */,
+				A00000000000000000000057 /* SymbolDetailView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -291,6 +291,8 @@ struct PaperTradingView: View {
     @State private var sheetStatus = ""
     @State private var busy = false
     @State private var requestID = UUID().uuidString
+    /// A symbol page can open this screen with its symbol already filled in. Nothing is reviewed until the user asks.
+    init(prefillSymbol: String = "") { _symbol = State(initialValue: prefillSymbol) }
     var body: some View {
         SubScreen(title: "Paper account", refresh: { await load() }) {
             HStack { StatusBadge("Paper", tone: .paper); Spacer(); if busy { ProgressView() } }
@@ -324,7 +326,7 @@ struct PaperTradingView: View {
                 EmptyState(title: "Not loaded", message: "Pull down to load your paper account.", icon: "arrow.down")
             }
             OutcomeNotice(text: status, kind: statusKind)
-            SectionCard(title: "Paper order", footer: "The review shows the saved daily close and modeled slippage.") {
+            SectionCard(title: "Paper order", footer: "The review uses the latest market price your server can see, or the last close when none is available, plus modeled slippage.") {
                 Picker("Side", selection: $side) { Text("Buy").tag("buy"); Text("Sell").tag("sell") }.pickerStyle(.segmented)
                 MetricsGrid {
                     VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -382,8 +384,8 @@ struct PaperTradingView: View {
                               rows: {
                                   DetailRow("Account", "Paper portfolio")
                                   DetailRow("Simulated fill price", workspaceMoney(proposed.fill_price))
-                                  DetailRow("Reference close", workspaceMoney(proposed.reference_price))
-                                  DetailRow("Quote time", gatewayDate(proposed.reference_as_of))
+                                  DetailRow("Reference price", workspaceMoney(proposed.reference_price))
+                                  DetailRow("Price time", gatewayDate(proposed.reference_as_of))
                                   Divider().overlay(Theme.separator)
                                   DetailRow("Estimated cash change", workspaceMoney(proposed.cash_change, signed: true))
                                   Footnote("\(proposed.source) · 0.10% modeled slippage")
