@@ -1,11 +1,16 @@
 import SwiftUI
 import TradeCore
+import UserNotifications
 
 @main
 struct TradePilotApp: App {
     @State private var store = AppStore()
+    init() { UNUserNotificationCenter.current().delegate = NotificationRouter.shared }
     var body: some Scene {
         WindowGroup { landing.environment(store).tint(Theme.accent) }
+        #if os(iOS)
+        .backgroundTask(.appRefresh(AlertNotifier.refreshTask)) { await AlertNotifier.backgroundCheck() }
+        #endif
     }
     // Debug-only screen selection for simulator visual QA; no account/action overrides.
     @ViewBuilder private var landing: some View {
@@ -42,6 +47,7 @@ final class AppStore {
     var engine = DemoEngine()
     var journal = JournalStore()
     var watchlist = WatchlistStore()
+    var marketsPath: [String] = []
     var strategyID = "long_term"
     var researchTicker = "AAPL"
     var useMarketData = false
@@ -157,6 +163,7 @@ final class AppStore {
 
 struct RootView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.tab) {
@@ -174,6 +181,15 @@ struct RootView: View {
             }
         }
         .sheet(isPresented: $store.showAssistant) { AssistantView() }
+        .onAppear {
+            NotificationRouter.shared.open = { [store] symbol in
+                store.tab = 4
+                store.marketsPath = [symbol]
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { AlertNotifier.schedule() }
+        }
     }
 }
 

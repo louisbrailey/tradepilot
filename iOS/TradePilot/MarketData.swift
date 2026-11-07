@@ -166,11 +166,11 @@ enum MarketAPI {
     }
 
     static func post<T: Decodable & Sendable, B: Encodable & Sendable>(_ path: String, _ body: B,
-        endpoint: String, token: String) async throws -> T {
+        endpoint: String, token: String, timeout: TimeInterval = 45) async throws -> T {
         guard token.count >= 32 else { throw WorkspaceError(message: "Connect to your server in Settings to see market data.") }
         let base = try ConnectionSettings.authorizedEndpoint(endpoint)
         var request = URLRequest(url: base.appendingPathComponent(path))
-        request.httpMethod = "POST"; request.timeoutInterval = 45
+        request.httpMethod = "POST"; request.timeoutInterval = timeout
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
@@ -219,8 +219,8 @@ private struct AlertCreateRequest: Encodable, Sendable {
 private struct AlertIDRequest: Encodable, Sendable { let id: String }
 
 enum AlertsAPI {
-    static func state(endpoint: String, token: String) async throws -> AlertsSnapshot {
-        try await MarketAPI.post("v1/alerts/state", EmptyWorkspaceRequest(), endpoint: endpoint, token: token)
+    static func state(endpoint: String, token: String, timeout: TimeInterval = 45) async throws -> AlertsSnapshot {
+        try await MarketAPI.post("v1/alerts/state", EmptyWorkspaceRequest(), endpoint: endpoint, token: token, timeout: timeout)
     }
     static func create(symbol: String, direction: String, target: String, clientID: String,
                        endpoint: String, token: String) async throws -> PriceAlert {
@@ -304,7 +304,7 @@ final class WatchlistStore {
         if let data = try? JSONEncoder().encode(symbols) { defaults.set(data, forKey: Self.key) }
     }
 
-    static func valid(_ symbol: String) -> Bool {
+    nonisolated static func valid(_ symbol: String) -> Bool {
         symbol.range(of: "^[A-Z][A-Z0-9.\\-]{0,14}$", options: .regularExpression) != nil
     }
 

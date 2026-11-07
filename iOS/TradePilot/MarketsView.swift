@@ -24,7 +24,8 @@ struct MarketsView: View {
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        NavigationStack {
+        @Bindable var store = store
+        NavigationStack(path: $store.marketsPath) {
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.l) {
                     if trimmedQuery.isEmpty { dashboard } else { searchResults }
@@ -268,7 +269,10 @@ struct MarketsView: View {
             quotes = Dictionary(loadedQuotes.quotes.map { ($0.symbol, $0) }, uniquingKeysWith: { $1 })
             missing = Set(loadedQuotes.missing)
         }
-        if let latest = try? await alertState, request == binding { alerts = latest }
+        if let latest = try? await alertState, request == binding {
+            alerts = latest
+            await AlertNotifier.deliver(latest)
+        }
         if loadedSummary != nil || loadedQuotes != nil { refreshedAt = .now }
         message = Array(Set(problems)).sorted().first ?? ""
     }

@@ -43,7 +43,7 @@ struct AlertComposer: View {
                         Footnote("Last price \(MarketFormat.price(price)).\(reached ? " \(symbol) is already \(direction) this price, so the alert will trigger at the next check." : "")")
                     }
                     OutcomeNotice(text: message, kind: .error)
-                    Footnote("Your server checks about once a minute during pre-market, regular and after-hours trading, and only prices after you create the alert count. Alerts never place orders. Open the app to see triggered alerts.")
+                    Footnote("Your server checks about once a minute during pre-market, regular and after-hours trading, and only prices after you create the alert count. TradePilot notifies you when it next refreshes, which iOS schedules while your iPhone is unlocked. Alerts never place orders.")
                 }
                 .padding(Spacing.l)
             }
@@ -96,6 +96,7 @@ struct AlertComposer: View {
                 let alert = try await AlertsAPI.create(symbol: symbol, direction: direction, target: level, clientID: requestID,
                                                        endpoint: binding.endpoint, token: binding.token)
                 created(alert)
+                await AlertNotifier.requestPermission()
                 dismiss()
             } catch { message = error.localizedDescription }
         }
@@ -175,7 +176,7 @@ struct AlertsListView: View {
                         }
                     }
                 }
-                Footnote(snapshot.notice + " Your server checks about once a minute during trading sessions; open the app to see triggered alerts.")
+                Footnote(snapshot.notice + " Your server checks about once a minute during trading sessions. TradePilot notifies you when iOS lets it refresh in the background, or when you open the app.")
             } else if busy {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, Spacing.xl)
             }
@@ -192,6 +193,7 @@ struct AlertsListView: View {
             let loaded = try await AlertsAPI.state(endpoint: request.endpoint, token: request.token)
             guard request == binding else { return }
             snapshot = loaded; message = ""
+            await AlertNotifier.deliver(loaded)
         } catch { if request == binding { message = error.localizedDescription } }
     }
 
@@ -200,7 +202,7 @@ struct AlertsListView: View {
         Task {
             do {
                 let updated = try await AlertsAPI.remove(alert.id, endpoint: request.endpoint, token: request.token)
-                if request == binding { snapshot = updated; message = "" }
+                if request == binding { snapshot = updated; message = ""; await AlertNotifier.deliver(updated) }
             } catch { if request == binding { message = error.localizedDescription } }
         }
     }
@@ -212,7 +214,7 @@ struct AlertsListView: View {
             defer { busy = false }
             do {
                 let updated = try await AlertsAPI.clearTriggered(endpoint: request.endpoint, token: request.token)
-                if request == binding { snapshot = updated; message = "" }
+                if request == binding { snapshot = updated; message = ""; await AlertNotifier.deliver(updated) }
             } catch { if request == binding { message = error.localizedDescription } }
         }
     }
