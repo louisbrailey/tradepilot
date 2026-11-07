@@ -53,7 +53,13 @@ struct JournalEntry: Identifiable, Codable, Sendable {
 
 enum JournalEvidence {
     static func matches(_ entry: JournalEntry, environment: String, strategy: String, kind: String) -> Bool {
-        let environmentMatches = environment == "all" || (environment == "demo" ? entry.mode == "demo" : environment == "research" ? entry.mode == "historical_research" : entry.mode.hasPrefix("webull_"))
+        let environmentMatches = switch environment {
+        case "all": true
+        case "demo", "paper": entry.mode == environment
+        case "research": entry.mode == "historical_research"
+        case "webull": entry.mode.hasPrefix("webull_")
+        default: false
+        }
         return environmentMatches && (strategy == "all" || entry.strategy == strategy) && (kind == "all" || entry.kind == kind)
     }
 
@@ -171,6 +177,8 @@ enum JournalLabels {
 struct ResearchView: View {
     @Environment(AppStore.self) private var store
     @State private var researchText = ""
+    @State private var researchError = ""
+    @State private var researchSymbol: String?
     @State private var researching = false
     @State private var evaluation: RecordedEvaluation?
     @State private var loadingEvaluation = false
@@ -192,7 +200,11 @@ struct ResearchView: View {
                     TextField("Symbol", text: $store.researchTicker).phoneSymbolInput().fieldStyle()
                     Button(researching ? "Loading…" : "Load") { loadResearch() }.buttonStyle(PrimaryButtonStyle()).frame(width: 110).disabled(researching || store.researchTicker.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                if !researchText.isEmpty { Text(researchText).font(.footnote).textSelection(.enabled) }
+                OutcomeNotice(text: researchError, kind: .error)
+                if let researchSymbol, !researchText.isEmpty {
+                    Text(researchSymbol).font(.headline).accessibilityAddTraits(.isHeader)
+                    Text(researchText).font(.subheadline).textSelection(.enabled)
+                }
                 Picker("Focus", selection: $store.strategyID) { ForEach(StrategyProfile.all) { profile in Text(profile.title).tag(profile.id) } }.pickerStyle(.menu)
                 if let profile = StrategyProfile.all.first(where: { $0.id == store.strategyID }) {
                     Text(profile.question).font(.footnote).foregroundStyle(Theme.textSecondary)
@@ -208,10 +220,10 @@ struct ResearchView: View {
                 if let evaluation { RecordedEvaluationCard(report: evaluation) }
             }
         }
-        .onConnectionChange(store) { evaluation = nil; evaluationError = ""; researchText = "" }
+        .onConnectionChange(store) { evaluation = nil; evaluationError = ""; researchText = ""; researchSymbol = nil; researchError = "" }
     }
     private func loadResearch() {
-        researching = true
+        researching = true; researchError = ""; researchText = ""; researchSymbol = nil
         let ticker = store.researchTicker.uppercased().trimmingCharacters(in: .whitespaces)
         let endpoint = store.aiEndpoint, token = store.aiToken
         store.record("request", "Load market research for \(ticker)")
@@ -220,11 +232,11 @@ struct ResearchView: View {
             do {
                 let text = try await AIService.research(endpoint: endpoint, token: token, ticker: ticker)
                 guard store.aiEndpoint == endpoint, store.aiToken == token else { return }
-                researchText = text
+                researchText = text; researchSymbol = ticker
                 store.record("research", researchText)
             } catch {
                 guard store.aiEndpoint == endpoint, store.aiToken == token else { return }
-                researchText = error.localizedDescription; store.record("error", researchText)
+                researchError = error.localizedDescription; store.record("error", researchError)
             }
         }
     }
@@ -262,7 +274,7 @@ struct JournalView: View {
         let filtered = store.journal.entries.filter { JournalEvidence.matches($0, environment: environmentFilter, strategy: strategyFilter, kind: eventFilter) }
         Screen(title: "Journal") {
             if let error = store.journal.error { InlineNotice(kind: .error, message: error) }
-            HStack(spacing: Spacing.l) {
+            MetricsGrid {
                 MetricTile(label: "Entries", value: "\(filtered.count)")
                 MetricTile(label: "Notes", value: "\(filtered.filter { $0.kind == "note" || $0.reflection != nil }.count)")
                 MetricTile(label: "Broker updates", value: "\(filtered.filter { $0.kind == "broker_status" || $0.kind == "submission_result" }.count)")
@@ -270,16 +282,17 @@ struct JournalView: View {
             }
             HStack(spacing: Spacing.s) {
                 Menu {
-                    Picker("Account", selection: $environmentFilter) { Text("All accounts").tag("all"); Text("Practice").tag("demo"); Text("Webull").tag("webull"); Text("Research").tag("research") }
+                    Picker("Account", selection: $environmentFilter) { Text("All accounts").tag("all"); Text("Paper").tag("paper"); Text("Practice").tag("demo"); Text("Webull").tag("webull"); Text("Research").tag("research") }
                     Picker("Strategy", selection: $strategyFilter) { Text("All strategies").tag("all"); ForEach(StrategyProfile.all) { Text($0.title).tag($0.id) } }
                     Picker("Event", selection: $eventFilter) { Text("All events").tag("all"); ForEach(kinds, id: \.self) { Text(JournalLabels.kind($0)).tag($0) } }
                 } label: {
                     Label(filterSummary, systemImage: "line.3.horizontal.decrease.circle").font(.footnote.weight(.semibold))
-                        .padding(.horizontal, Spacing.m).padding(.vertical, Spacing.s).background(Theme.surface, in: Capsule())
+                        .padding(.horizontal, Spacing.m).frame(minHeight: 44).background(Theme.surface, in: RoundedRectangle(cornerRadius: Radius.control))
                 }
                 Spacer()
-                ShareLink(item: store.journal.exportText) { Image(systemName: "square.and.arrow.up").accessibilityLabel("Export journal") }
-                Button { showNote = true } label: { Image(systemName: "square.and.pencil").accessibilityLabel("Add note") }.disabled(store.journal.error != nil)
+                ShareLink(item: store.journal.exportText) { Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44).accessibilityLabel("Export journal") }
+                    .disabled(store.journal.entries.isEmpty)
+                Button { showNote = true } label: { Image(systemName: "square.and.pencil").frame(width: 44, height: 44).accessibilityLabel("Add note") }.disabled(store.journal.error != nil)
             }
             if store.journal.entries.isEmpty {
                 EmptyState(title: "No entries yet", message: "Requests, reviews, confirmations and notes are recorded here, on this phone.", icon: "book.closed")

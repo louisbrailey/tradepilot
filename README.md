@@ -2,18 +2,18 @@
 
 A native iPhone assistant for reviewing portfolios, preparing explicitly confirmed trades, and keeping research and a trade journal together.
 
-**Current verified status:** version 0.3.0 is installed on the physical iPhone with verified Webull and Coinbase read access. Real account screens are separate from sample portfolios and paper trading. Three fixed automated SPY paper experiments are running; see [the protocol](AUTOMATED-PAPER.md). Local AI, Massive research, strategy comparison and Kronos replay have prior physical-phone verification. See [latest status](LATEST-STATUS.md), [0.3.0 automation checks](reports/automated-paper-2026-11-05.md) and [research/paper checks](reports/phone-verification-2026-11-04.md). Live trading and transfers are disabled.
+**Current verified status:** version 0.4.1 is installed on the USB iPhone. Its updated portfolio and order screens passed simulator checks. iOS reports a signing or profile-trust error at launch. Webull and Coinbase read access, local AI, Massive research and Kronos replay have prior physical-phone verification. The Mac scheduler is recording three automated SPY paper experiments and has recorded the first simulated fill. Live trading and transfers are disabled. See [latest status](LATEST-STATUS.md) and [the paper protocol](AUTOMATED-PAPER.md).
 
 Kronos is available under **Research → Kronos forecasting lab** for local historical forecasts and baseline comparisons. See [Kronos setup and verification](KRONOS.md).
 
 ## Included
 
 - Automated prospective paper strategies with a private scheduler, separate portfolios and explicit stop/data gates.
-- SwiftUI app with four tabs: Home (connection status, practice account, recent orders), Accounts (Webull, Coinbase, paper, practice, Settings), Research (strategy lab, forecast replay, market research, recorded backtest) and Journal. The assistant opens as a sheet from Home. A shared design system (`iOS/TradePilot/DesignSystem.swift`) supplies the theme, status badges, metric tiles and the single confirmation sheet used by every order flow.
+- SwiftUI app with four tabs. Home shows paper equity and links to practice, automated strategies and broker accounts. Accounts groups the broker connections and settings. Research hosts strategy comparison, forecast replay, market research and recorded backtests. Journal keeps activity and notes. The practice assistant opens from Home. A shared design system supplies the theme, metric tiles, and order confirmation sheet.
 - Local Ollama inference or optional OpenAI, strict structured proposals, independent order validation, and separate confirmation.
 - Webull long-stock DAY market/limit order adapter with durable no-duplicate submission and execution evidence.
 - Real Massive/Benzinga research and reproducible multi-stage historical evaluation with results in the app.
-- Private TLS pairing, Keychain access token, and a per-user Mac gateway. [Always-on remote hosting](REMOTE-SETUP.md) is prepared but not yet deployed.
+- Private TLS pairing, Keychain access token, and a per-user Mac gateway. The planned always-on host is the [home PC](HOME-PC.md).
 
 See [confirmed broker access, supported scope and safety controls](BROKER-ACCESS.md) for the Coinbase action screen and Webull cancellation flow. The matching gateway routes are deployed. Read-only access has been verified; this does not qualify or enable live submissions.
 

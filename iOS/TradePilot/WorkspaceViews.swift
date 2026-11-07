@@ -1,5 +1,6 @@
 import SwiftUI
 import TradeCore
+import Charts
 
 struct EmptyWorkspaceRequest: Encodable, Sendable {}
 struct PaperApproval: Encodable, Sendable { let id: String; let token: String; let approved = true }
@@ -33,6 +34,7 @@ struct PaperPosition: Decodable, Sendable, Identifiable {
     var id: String { symbol }
     let symbol: String; let quantity: String; let cost_basis: String; let market_value: String
     let unrealized_pnl: String; let reference_as_of: Double
+    let average_cost: String?
 }
 struct PaperReview: Decodable, Sendable, Identifiable {
     let id: String; let token: String?; let mode: String; let status: String
@@ -42,19 +44,102 @@ struct PaperReview: Decodable, Sendable, Identifiable {
     let expires_at: Double; let label: String
 }
 struct PaperEventDetails: Decodable, Sendable {
-    let text: String?; let symbol: String?; let side: String?; let quantity: String?
+    let text: String?; let symbol: String?; let side: String?; let quantity: String?; let notional: String?
 }
 struct PaperEvent: Decodable, Sendable, Identifiable {
     let id: Int; let kind: String; let at: Double; let data: PaperEventDetails
-    var summary: String { data.text ?? [data.side, data.quantity, data.symbol].compactMap { $0 }.joined(separator: " ") }
+    var summary: String { data.text ?? [data.side?.capitalized, data.quantity, data.symbol].compactMap { $0 }.joined(separator: " ") }
+}
+struct PaperValuation: Decodable, Sendable, Identifiable {
+    let id: Int
+    let recorded_at: Double
+    let equity: String
 }
 struct PaperSnapshot: Decodable, Sendable {
     let mode: String; let cash: String; let equity: String; let realized_pnl: String
     let max_drawdown: String; let mark_to_market_notice: String
     let positions: [PaperPosition]; let reviews: [PaperReview]; let orders: [PaperReview]; let journal: [PaperEvent]
+    let initial_cash: String?; let valuation_as_of: Double?; let valuations: [PaperValuation]?
 }
 func workspaceMoney(_ value: String, signed: Bool = false) -> String { gatewayMoney(value, signed: signed) }
 func workspaceDate(_ value: Double) -> String { gatewayDate(value) }
+
+struct PaperEquitySummary: View {
+    let snapshot: PaperSnapshot
+
+    private var change: Decimal? {
+        guard let balance = strictDecimal(snapshot.equity), let opening = snapshot.initial_cash.flatMap({ strictDecimal($0) }), opening > 0 else { return nil }
+        return balance - opening
+    }
+
+    var body: some View {
+        let points = (snapshot.valuations ?? []).compactMap(EquityPoint.init).sorted {
+            $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date
+        }
+        HeroMetric(label: "Total equity", value: workspaceMoney(snapshot.equity),
+                   delta: change.map { "\(signedMoney($0)) since start" },
+                   deltaTone: change.map { $0 > 0 ? .positive : $0 < 0 ? .negative : .neutral } ?? .neutral)
+        if let first = points.first, let last = points.last, first.date < last.date {
+            let low = points.map(\.equity).min() ?? first.equity
+            let high = points.map(\.equity).max() ?? last.equity
+            let padding = max(1, (high - low) * 0.15)
+            let fractionalDigits = high - low < 4 ? 2 : 0
+            let sameDay = Calendar.current.isDate(first.date, inSameDayAs: last.date)
+            let timeFormat: Date.FormatStyle = sameDay ? .dateTime.hour().minute() : .dateTime.month(.abbreviated).day()
+            Chart {
+                ForEach(points) { point in
+                    LineMark(x: .value("Recorded", point.date), y: .value("Equity", point.equity))
+                        .foregroundStyle(Theme.accent).lineStyle(StrokeStyle(lineWidth: 2))
+                }
+                PointMark(x: .value("Recorded", last.date), y: .value("Equity", last.equity))
+                    .foregroundStyle(Theme.accent).symbolSize(32)
+            }
+            .chartYScale(domain: max(0, low - padding)...(high + padding))
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
+                    AxisGridLine().foregroundStyle(Theme.separator)
+                    AxisValueLabel {
+                        if let amount = value.as(Double.self) {
+                            Text(amount, format: .currency(code: "USD").precision(.fractionLength(fractionalDigits)))
+                                .font(.caption2).foregroundStyle(Theme.textSecondary)
+                        }
+                    }
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 3)) {
+                    AxisValueLabel(format: timeFormat).foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .frame(height: 126)
+            .accessibilityLabel("Saved paper account equity")
+            .accessibilityValue("\(points.count) observations from \(first.date.formatted(timeFormat)) to \(last.date.formatted(timeFormat))")
+        } else {
+            Footnote("The equity chart appears after two saved valuations.")
+        }
+        if let asOf = snapshot.valuation_as_of, asOf.isFinite, asOf > 0 {
+            Footnote("Oldest saved price · \(gatewayDate(asOf))")
+        } else if snapshot.positions.isEmpty {
+            Footnote("Cash only · USD")
+        }
+    }
+
+    private struct EquityPoint: Identifiable {
+        let id: Int
+        let date: Date
+        let equity: Double
+
+        init?(_ valuation: PaperValuation) {
+            guard valuation.recorded_at.isFinite, valuation.recorded_at > 0,
+                  let decimal = strictDecimal(valuation.equity, allowNegative: false) else { return nil }
+            let value = NSDecimalNumber(decimal: decimal).doubleValue
+            guard value.isFinite else { return nil }
+            id = valuation.id
+            date = Date(timeIntervalSince1970: valuation.recorded_at)
+            equity = value
+        }
+    }
+}
 
 enum PaperValidation {
     static func decimal(_ text: String) -> Decimal? { strictDecimal(text) }
@@ -210,46 +295,68 @@ struct PaperTradingView: View {
         SubScreen(title: "Paper account", refresh: { await load() }) {
             HStack { StatusBadge("Paper", tone: .paper); Spacer(); if busy { ProgressView() } }
             if let snapshot {
-                SectionCard(footer: "Fills use the previous session’s close plus 0.10% slippage. Valuations update when you refresh.") {
-                    HeroMetric(label: "Account value", value: workspaceMoney(snapshot.equity),
-                               delta: "\(workspaceMoney(snapshot.realized_pnl, signed: true)) realised", deltaTone: toneFor(snapshot.realized_pnl))
-                    HStack(spacing: Spacing.l) {
+                SectionCard {
+                    PaperEquitySummary(snapshot: snapshot)
+                    Divider().overlay(Theme.separator)
+                    MetricsGrid {
                         MetricTile(label: "Cash", value: workspaceMoney(snapshot.cash))
+                        MetricTile(label: "Realized P/L", value: workspaceMoney(snapshot.realized_pnl, signed: true), tone: toneFor(snapshot.realized_pnl))
                         MetricTile(label: "Max drawdown", value: drawdown(snapshot.max_drawdown))
                     }
-                    Button("Update valuations") { Task { await load(mark: true) } }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
+                    Button("Refresh prices") { Task { await load(mark: true) } }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
                 }
-                SectionCard(title: "Holdings") {
+                SectionCard(title: "Positions") {
                     if snapshot.positions.isEmpty {
                         EmptyState(title: "No positions", message: "Filled paper orders appear here.", icon: "chart.pie")
                     } else {
-                        ForEach(snapshot.positions) { p in
-                            HoldingRow(symbol: p.symbol, detail: "\(p.quantity) shares · marked \(relativeTime(p.reference_as_of))",
-                                       value: workspaceMoney(p.market_value), change: workspaceMoney(p.unrealized_pnl, signed: true), changeTone: toneFor(p.unrealized_pnl))
+                        Eyebrow("Position value and unrealized P/L")
+                        VStack(spacing: 0) {
+                            ForEach(snapshot.positions) { p in
+                                if p.id != snapshot.positions.first?.id { Divider().overlay(Theme.separator) }
+                                let average = p.average_cost.map { " · avg \(workspaceMoney($0))" } ?? ""
+                                HoldingRow(symbol: p.symbol, detail: "\(p.quantity) shares\(average)",
+                                           value: workspaceMoney(p.market_value), change: workspaceMoney(p.unrealized_pnl, signed: true), changeTone: toneFor(p.unrealized_pnl))
+                            }
                         }
                     }
                 }
             } else if !busy {
                 EmptyState(title: "Not loaded", message: "Pull down to load your paper account.", icon: "arrow.down")
             }
-            SectionCard(title: "New paper order", footer: "You’ll review the simulated fill before anything is recorded.") {
-                TextField("Or type it: Buy 3 AAPL", text: $command).fieldStyle()
-                    .onChange(of: command) { _, text in
-                        if case .trade(let intent) = DemoAssistant.parse(text) { symbol = intent.symbol; side = intent.side.rawValue; quantity = units(intent.quantity) }
-                    }
+            OutcomeNotice(text: status, kind: statusKind)
+            SectionCard(title: "Paper order", footer: "The review shows the saved daily close and modeled slippage.") {
                 Picker("Side", selection: $side) { Text("Buy").tag("buy"); Text("Sell").tag("sell") }.pickerStyle(.segmented)
-                HStack(spacing: Spacing.m) {
-                    TextField("Symbol", text: $symbol).phoneSymbolInput().fieldStyle()
-                    TextField("Shares", text: $quantity).phoneDecimalInput().fieldStyle()
+                MetricsGrid {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Eyebrow("Symbol")
+                        TextField("AAPL", text: $symbol).phoneSymbolInput().fieldStyle().accessibilityLabel("Symbol")
+                    }
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Eyebrow("Shares")
+                        TextField("0", text: $quantity).phoneDecimalInput().fieldStyle().accessibilityLabel("Shares")
+                    }
                 }
                 Button("Review order") { prepare() }.buttonStyle(PrimaryButtonStyle()).disabled(busy || symbol.trimmingCharacters(in: .whitespaces).isEmpty || quantity.isEmpty)
+                DisclosureGroup("Enter an order as text") {
+                    TextField("Buy 3 AAPL", text: $command).fieldStyle()
+                        .onChange(of: command) { _, text in
+                            if case .trade(let intent) = DemoAssistant.parse(text) { symbol = intent.symbol; side = intent.side.rawValue; quantity = units(intent.quantity) }
+                        }
+                }.font(.subheadline)
             }
-            OutcomeNotice(text: status, kind: statusKind)
-            SectionCard(title: "Notes") {
+            SectionCard(title: "Activity") {
+                let fills = snapshot?.journal.filter { $0.kind == "simulated_fill" } ?? []
+                if fills.isEmpty { Footnote("Filled paper orders appear here.") }
+                ForEach(fills.prefix(10)) { event in
+                    HoldingRow(symbol: event.summary, detail: relativeTime(event.at),
+                               value: event.data.notional.map { workspaceMoney($0) } ?? "Filled")
+                }
+            }
+            SectionCard(title: "Account notes") {
                 TextField("Thesis, observation or lesson", text: $note, axis: .vertical).lineLimit(2...5).fieldStyle()
                 Button("Save note") { saveNote() }.buttonStyle(SecondaryButtonStyle()).disabled(busy || note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                if let snapshot, !snapshot.journal.isEmpty {
-                    ForEach(snapshot.journal.prefix(20)) { event in
+                if let snapshot {
+                    ForEach(snapshot.journal.filter { $0.kind == "note" }.prefix(20)) { event in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack { Text(titleCase(event.kind)).font(.caption.weight(.semibold)); Spacer(); Text(relativeTime(event.at)).font(.caption).foregroundStyle(Theme.textTertiary) }
                             if !event.summary.isEmpty { Text(event.summary).font(.footnote).foregroundStyle(Theme.textSecondary) }
@@ -273,10 +380,13 @@ struct PaperTradingView: View {
                               confirmTitle: "Confirm paper \(proposed.side)",
                               busy: busy, notice: sheetStatus, noticeKind: .warning,
                               rows: {
+                                  DetailRow("Account", "Paper portfolio")
                                   DetailRow("Simulated fill price", workspaceMoney(proposed.fill_price))
-                                  DetailRow("Reference close", "\(workspaceMoney(proposed.reference_price)) · \(gatewayDate(proposed.reference_as_of))")
-                                  DetailRow("Cash change", workspaceMoney(proposed.cash_change, signed: true), tone: toneFor(proposed.cash_change))
-                                  Footnote(proposed.source)
+                                  DetailRow("Reference close", workspaceMoney(proposed.reference_price))
+                                  DetailRow("Quote time", gatewayDate(proposed.reference_as_of))
+                                  Divider().overlay(Theme.separator)
+                                  DetailRow("Estimated cash change", workspaceMoney(proposed.cash_change, signed: true))
+                                  Footnote("\(proposed.source) · 0.10% modeled slippage")
                               },
                               confirm: { confirm(proposed) },
                               cancel: { review = nil; requestID = UUID().uuidString })
@@ -300,7 +410,8 @@ struct PaperTradingView: View {
         let b = binding()
         do {
             let result: PaperSnapshot = try await WorkspaceAPI.request(mark ? "v1/paper/mark" : "v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
-            guard current(b), result.mode == "paper" else { return }
+            guard current(b) else { return }
+            guard result.mode == "paper" else { throw WorkspaceError(message: "Unexpected paper account response.") }
             snapshot = result; status = ""
         } catch { if current(b) { status = error.localizedDescription; statusKind = .error } }
     }
@@ -335,7 +446,10 @@ struct PaperTradingView: View {
             status = "Paper order filled and saved."; statusKind = .success
             do {
                 let result: PaperSnapshot = try await WorkspaceAPI.request("v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
-                if current(b) { snapshot = result }
+                if current(b) {
+                    guard result.mode == "paper" else { throw WorkspaceError(message: "Unexpected paper account response.") }
+                    snapshot = result
+                }
             } catch { if current(b) { status = "Paper order filled and saved, but the account didn’t refresh. Pull down to retry."; statusKind = .warning } }
         }
     }
@@ -345,9 +459,18 @@ struct PaperTradingView: View {
         Task { defer { busy = false }
             do {
                 let _: PaperEvent = try await WorkspaceAPI.request("v1/paper/note", body: ["text": text], endpoint: b.endpoint, token: b.token)
+                guard current(b) else { return }
+                note = ""; status = "Note saved."; statusKind = .success
+            } catch {
+                if current(b) { status = error.localizedDescription; statusKind = .error }
+                return
+            }
+            do {
                 let result: PaperSnapshot = try await WorkspaceAPI.request("v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
-                if current(b) { snapshot = result; note = ""; status = "" }
-            } catch { if current(b) { status = error.localizedDescription; statusKind = .error } }
+                guard current(b) else { return }
+                guard result.mode == "paper" else { throw WorkspaceError(message: "Unexpected paper account response.") }
+                snapshot = result
+            } catch { if current(b) { status = "Note saved. Pull down to refresh the account."; statusKind = .warning } }
         }
     }
 }
@@ -366,37 +489,47 @@ struct CoinbaseView: View {
     }
     var body: some View {
         SubScreen(title: "Coinbase", refresh: { await refresh() }) {
-            HStack {
-                StatusBadge("Live", tone: .live)
-                if let snapshot { Text("Updated \(relativeTime(snapshot.as_of))").font(.footnote).foregroundStyle(Theme.textTertiary) }
-                Spacer()
-                if busy { ProgressView() }
-            }
-            NavigationLink { CoinbaseActionsView() } label: { NavigationRow(title: "Permissions and orders", detail: "What this key may do", icon: "lock.shield") }
-                .buttonStyle(RowButtonStyle()).padding(.horizontal, Spacing.l).background(Theme.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            OutcomeNotice(text: message, kind: .error)
             if let snapshot {
-                SectionCard(title: "Balances", footer: "Balances are shown per asset, not as a combined dollar value.") {
+                HStack {
+                    StatusBadge("Balance view")
+                    Spacer()
+                    if busy { ProgressView() }
+                }
+                Footnote("Account loaded \(relativeTime(snapshot.as_of))")
+                SectionCard(title: "Asset balances", footer: "Amounts are shown in units of each asset.") {
                     Toggle("Show zero balances", isOn: $showEmptyAccounts).font(.subheadline)
                     if snapshot.accounts.isEmpty {
                         EmptyState(title: "No accounts", message: "Coinbase returned no asset accounts for this key.")
                     } else if visibleAccounts.isEmpty {
                         EmptyState(title: "All balances are zero", message: "Turn on “Show zero balances” to see them.")
                     } else {
-                        ForEach(visibleAccounts) { a in
-                            HoldingRow(symbol: a.currency, detail: a.hold == "0" || strictDecimal(a.hold) == 0 ? a.name : "\(a.hold) on hold", value: a.total,
-                                       change: a.available == a.total ? nil : "\(a.available) available")
+                        VStack(spacing: 0) {
+                            ForEach(visibleAccounts) { a in
+                                if a.id != visibleAccounts.first?.id { Divider().overlay(Theme.separator) }
+                                let hasHold = (strictDecimal(a.hold) ?? 0) > 0
+                                HoldingRow(symbol: a.currency, detail: hasHold ? "\(assetUnits(a.hold)) on hold" : a.name,
+                                           value: assetUnits(a.total), change: hasHold ? "\(assetUnits(a.available)) available" : nil)
+                            }
                         }
                         Footnote("\(visibleAccounts.count) of \(snapshot.accounts.count) asset accounts shown.")
                     }
                 }
-            } else if !busy {
+            } else if busy {
+                ProgressView("Loading Coinbase balances")
+            } else {
                 EmptyState(title: "Not loaded", message: "Pull down to load balances through your server.", icon: "arrow.down")
             }
-            OutcomeNotice(text: message, kind: .error)
+            SectionCard {
+                NavigationLink { CoinbaseActionsView() } label: { NavigationRow(title: "Permissions and orders", detail: "Account access and order history", icon: "lock.shield") }
+                    .buttonStyle(RowButtonStyle())
+            }
         }
         .task { if snapshot == nil { await refresh() } }
         .onConnectionChange(store) { snapshot = nil; message = "" }
     }
+    private func assetUnits(_ value: String) -> String { strictDecimal(value, allowNegative: false).map(units) ?? "—" }
+
     private func refresh() async {
         guard !busy else { return }
         busy = true
@@ -405,7 +538,9 @@ struct CoinbaseView: View {
         do {
             let result: CoinbaseSnapshot = try await WorkspaceAPI.request("v1/coinbase/state", body: EmptyWorkspaceRequest(), endpoint: b.endpoint, token: b.token)
             guard b.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
-            guard result.broker == "coinbase", result.read_only else { throw WorkspaceError(message: "Coinbase returned something unexpected. Try again.") }
+            guard result.broker == "coinbase", result.read_only, result.as_of.isFinite, result.as_of > 0 else {
+                throw WorkspaceError(message: "Coinbase returned an unexpected balance response. Pull down to refresh.")
+            }
             snapshot = result; message = ""
         } catch { if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription } }
     }

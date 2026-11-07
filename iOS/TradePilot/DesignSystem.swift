@@ -1,22 +1,41 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 // Presentation layer only. Nothing here touches order, confirmation or connection logic.
 
 enum Theme {
-    static let background = Color(red: 0.04, green: 0.05, blue: 0.07)
-    static let surface = Color(red: 0.09, green: 0.105, blue: 0.13)
-    static let surfaceRaised = Color(red: 0.13, green: 0.15, blue: 0.18)
-    static let separator = Color.white.opacity(0.08)
-    static let textPrimary = Color.white
-    static let textSecondary = Color(red: 0.66, green: 0.70, blue: 0.76)
-    static let textTertiary = Color(red: 0.46, green: 0.50, blue: 0.56)
-    static let accent = Color(red: 0.36, green: 0.84, blue: 0.66)
-    static let positive = Color(red: 0.30, green: 0.80, blue: 0.52)
-    static let negative = Color(red: 0.95, green: 0.38, blue: 0.38)
-    static let warning = Color(red: 0.97, green: 0.72, blue: 0.28)
-    static let live = Color(red: 0.98, green: 0.45, blue: 0.36)
-    static let paper = Color(red: 0.42, green: 0.62, blue: 0.98)
-    static let practice = Color(red: 0.60, green: 0.66, blue: 0.74)
+    static let background = adaptive(0xF3F5F9, 0x101620)
+    static let surface = adaptive(0xFFFFFF, 0x192333)
+    static let surfaceRaised = adaptive(0xEBF0F6, 0x243246)
+    static let separator = adaptive(0xDCE3ED, 0x34445B)
+    static let textPrimary = adaptive(0x141E30, 0xF2F5FA)
+    static let textSecondary = adaptive(0x435469, 0xB7C4D5)
+    static let textTertiary = adaptive(0x53667E, 0x9AAAC0)
+    static let accent = adaptive(0x1A4F99, 0x91BCFF)
+    static let onAccent = adaptive(0xFFFFFF, 0x101620)
+    static let positive = adaptive(0x0E6E4B, 0x6FD7A3)
+    static let negative = adaptive(0xAE293D, 0xFF99A6)
+    static let warning = adaptive(0x804D04, 0xF4C369)
+    static let live = adaptive(0xA52B38, 0xFF99A6)
+    static let paper = accent
+    static let practice = textSecondary
+
+    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
+        #if os(iOS)
+        Color(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((rgb >> 16) & 255) / 255,
+                           green: CGFloat((rgb >> 8) & 255) / 255,
+                           blue: CGFloat(rgb & 255) / 255, alpha: 1)
+        })
+        #else
+        Color(red: Double((light >> 16) & 255) / 255,
+              green: Double((light >> 8) & 255) / 255,
+              blue: Double(light & 255) / 255)
+        #endif
+    }
 }
 
 enum Spacing {
@@ -24,16 +43,16 @@ enum Spacing {
 }
 
 enum Radius {
-    static let card: CGFloat = 18, control: CGFloat = 12
+    static let card: CGFloat = 12, control: CGFloat = 8
 }
 
 // MARK: - Formatting
 
 func money(_ number: Decimal, currency: String = "USD") -> String {
     let f = NumberFormatter()
+    f.locale = Locale.current
     f.numberStyle = .currency
     f.currencyCode = currency
-    f.locale = Locale.current
     return f.string(from: number as NSDecimalNumber) ?? "—"
 }
 
@@ -50,6 +69,8 @@ func percent(_ value: Double, digits: Int = 2, signed: Bool = false) -> String {
 
 func relativeTime(_ date: Date, now: Date = Date()) -> String {
     let seconds = now.timeIntervalSince(date)
+    guard seconds.isFinite else { return "—" }
+    if seconds < -60 { return date.formatted(date: .abbreviated, time: .shortened) }
     if seconds < 60 { return "just now" }
     if seconds < 24 * 3600 {
         let f = RelativeDateTimeFormatter(); f.unitsStyle = .short
@@ -93,7 +114,7 @@ struct Eyebrow: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
-        Text(text).font(.footnote.weight(.semibold)).textCase(.uppercase).tracking(0.6).foregroundStyle(Theme.textTertiary)
+        Text(text).font(.footnote.weight(.medium)).foregroundStyle(Theme.textSecondary)
     }
 }
 
@@ -125,9 +146,9 @@ struct StatusBadge: View {
     let tone: Tone
     init(_ text: String, tone: Tone = .neutral) { self.text = text; self.tone = tone }
     var body: some View {
-        Text(text).font(.caption2.weight(.semibold)).textCase(.uppercase).tracking(0.4)
+        Text(text).font(.caption.weight(.semibold))
             .padding(.horizontal, Spacing.s).padding(.vertical, Spacing.xs)
-            .background(tone.color.opacity(0.16), in: Capsule())
+            .background(tone.color.opacity(0.10), in: RoundedRectangle(cornerRadius: 5))
             .foregroundStyle(tone.color)
             .accessibilityLabel(Text(text))
     }
@@ -166,13 +187,14 @@ struct SectionCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.m) {
-            if let title { Text(title).font(.headline).foregroundStyle(Theme.textPrimary) }
+            if let title { Text(title).font(.headline).foregroundStyle(Theme.textPrimary).accessibilityAddTraits(.isHeader) }
             content
             if let footer { Footnote(footer) }
         }
         .padding(Spacing.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(Theme.separator, lineWidth: 1))
     }
 }
 
@@ -184,12 +206,21 @@ struct MetricTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             Eyebrow(label)
-            Text(value).font(.title3.weight(.semibold)).monospacedDigit().minimumScaleFactor(0.7).lineLimit(1)
+            Text(value).font(.title3.weight(.semibold)).monospacedDigit().fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(tone?.color ?? Theme.textPrimary)
             if let caption { Text(caption).font(.caption).foregroundStyle(Theme.textTertiary) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+}
+
+struct MetricsGrid<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ViewBuilder var content: Content
+    var body: some View {
+        let columns = typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 108), spacing: Spacing.l)]
+        LazyVGrid(columns: columns, alignment: .leading, spacing: Spacing.m) { content }
     }
 }
 
@@ -209,15 +240,21 @@ struct HeroMetric: View {
 }
 
 struct DetailRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let label: String
     let value: String
     var tone: Tone? = nil
     init(_ label: String, _ value: String, tone: Tone? = nil) { self.label = label; self.value = value; self.tone = tone }
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Spacing.xs))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: Spacing.m))
+        layout {
             Text(label).foregroundStyle(Theme.textSecondary)
-            Spacer(minLength: Spacing.m)
-            Text(value).monospacedDigit().multilineTextAlignment(.trailing).foregroundStyle(tone?.color ?? Theme.textPrimary).textSelection(.enabled)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            Text(value).monospacedDigit().multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+                .foregroundStyle(tone?.color ?? Theme.textPrimary).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .font(.subheadline)
         .accessibilityElement(children: .combine)
@@ -226,27 +263,30 @@ struct DetailRow: View {
 
 /// Symbol + description on the left, value + signed change on the right.
 struct HoldingRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let symbol: String
     let detail: String
     let value: String
     var change: String? = nil
     var changeTone: Tone = .neutral
     var body: some View {
-        HStack(spacing: Spacing.m) {
-            Text(String(symbol.prefix(2))).font(.caption.weight(.bold)).frame(width: 40, height: 40)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-                .foregroundStyle(Theme.accent).accessibilityHidden(true)
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Spacing.xs))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: Spacing.m))
+        layout {
             VStack(alignment: .leading, spacing: 2) {
                 Text(symbol).font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                Text(detail).font(.caption).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: Spacing.s)
-            VStack(alignment: .trailing, spacing: 2) {
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 2) {
                 Text(value).font(.subheadline.weight(.semibold)).monospacedDigit()
                 if let change { Text(change).font(.caption).monospacedDigit().foregroundStyle(changeTone.color) }
             }
+            .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, Spacing.xs)
+        .padding(.vertical, Spacing.s)
         .accessibilityElement(children: .combine)
     }
 }
@@ -258,7 +298,7 @@ struct NavigationRow: View {
     var badge: StatusBadge? = nil
     var body: some View {
         HStack(spacing: Spacing.m) {
-            Image(systemName: icon).font(.title3).foregroundStyle(Theme.accent).frame(width: 28).accessibilityHidden(true)
+            Image(systemName: icon).font(.body.weight(.medium)).foregroundStyle(Theme.accent).frame(width: 24).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
                 if let detail { Text(detail).font(.caption).foregroundStyle(Theme.textSecondary) }
@@ -268,6 +308,7 @@ struct NavigationRow: View {
             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.textTertiary).accessibilityHidden(true)
         }
         .padding(.vertical, Spacing.s)
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
     }
 }
@@ -342,9 +383,9 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .foregroundStyle(tone == .accent ? Theme.background : Theme.textPrimary)
+            .padding(.horizontal, Spacing.m).padding(.vertical, Spacing.s)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .foregroundStyle(isEnabled ? Theme.onAccent : Theme.textSecondary)
             .background((tone.color).opacity(configuration.isPressed ? 0.75 : isEnabled ? 1 : 0.35), in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
     }
 }
@@ -354,8 +395,8 @@ struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Spacing.m).padding(.vertical, Spacing.s)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .foregroundStyle(Theme.textPrimary.opacity(isEnabled ? 1 : 0.4))
             .background(Theme.surfaceRaised.opacity(configuration.isPressed ? 0.7 : 1), in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
     }
@@ -383,6 +424,7 @@ struct Screen<Content: View>: View {
         }
         .background(Theme.background)
         .navigationTitle(title)
+        .phoneInlineTitle()
         .phoneNavigationTheme()
         .modifier(OptionalRefresh(action: refresh))
     }
@@ -400,6 +442,7 @@ struct SubScreen<Content: View>: View {
         }
         .background(Theme.background)
         .navigationTitle(title)
+        .phoneInlineTitle()
         .phoneNavigationTheme()
         .modifier(OptionalRefresh(action: refresh))
     }
@@ -436,10 +479,19 @@ struct ConfirmationSheet<Rows: View>: View {
                     SectionCard { VStack(spacing: Spacing.m) { rows } }
                     if let disclaimer { Footnote(disclaimer) }
                     OutcomeNotice(text: notice, kind: noticeKind)
+                }
+                .padding(Spacing.l)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: Spacing.s) {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        let remaining = expiresAt.map { max(0, Int($0.timeIntervalSince(context.date))) }
+                        let remaining = expiresAt.map { deadline -> Int in
+                            let seconds = deadline.timeIntervalSince(context.date)
+                            guard seconds.isFinite, seconds > 0, seconds < Double(Int.max) else { return 0 }
+                            return Int(seconds.rounded(.up))
+                        }
                         let expired = remaining == 0
-                        VStack(spacing: Spacing.m) {
+                        VStack(spacing: Spacing.s) {
                             if let remaining {
                                 Text(expired ? "This review has expired. Request a new one." : "Expires in \(remaining / 60):\(String(format: "%02d", remaining % 60))")
                                     .font(.footnote).monospacedDigit().foregroundStyle(expired ? Theme.warning : Theme.textTertiary)
@@ -451,11 +503,14 @@ struct ConfirmationSheet<Rows: View>: View {
                     }
                     Button("Cancel", action: cancel).buttonStyle(SecondaryButtonStyle()).disabled(busy)
                 }
-                .padding(Spacing.xl)
+                .padding(Spacing.l)
+                .background(Theme.surface)
+                .overlay(alignment: .top) { Divider().overlay(Theme.separator) }
             }
             .background(Theme.background)
             .navigationTitle(title)
             .phoneInlineTitle()
+            .phoneNavigationTheme()
         }
         .tint(Theme.accent)
     }
@@ -466,7 +521,8 @@ struct ConfirmationSheet<Rows: View>: View {
 extension View {
     @ViewBuilder func phoneNavigationTheme() -> some View {
         #if os(iOS)
-        toolbarColorScheme(.dark, for: .navigationBar)
+        toolbarBackground(Theme.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         #else
         self
         #endif

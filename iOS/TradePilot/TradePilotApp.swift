@@ -5,7 +5,7 @@ import TradeCore
 struct TradePilotApp: App {
     @State private var store = AppStore()
     var body: some Scene {
-        WindowGroup { landing.environment(store).preferredColorScheme(.dark).tint(Theme.accent) }
+        WindowGroup { landing.environment(store).tint(Theme.accent) }
     }
     // Debug-only screen selection for simulator visual QA; no account/action overrides.
     @ViewBuilder private var landing: some View {
@@ -58,7 +58,7 @@ final class AppStore {
         }
     }
     var visibleHoldings: [Holding] { engine.holdings.filter { accountID == "all" || $0.accountID == accountID } }
-    var connected: Bool { aiToken.count >= 32 && !aiEndpoint.isEmpty }
+    var hasServerSettings: Bool { aiToken.count >= 32 && (try? ConnectionSettings.validatedEndpoint(aiEndpoint)) != nil }
 
     func record(_ kind: String, _ text: String, reference: String? = nil, order: Order? = nil) {
         journal.append(kind: kind, text: text, strategy: strategyID, accountID: order?.preview.accountID ?? accountID, reference: reference, holdings: engine.holdings, order: order)
@@ -167,7 +167,6 @@ struct RootView: View {
                     .padding(.horizontal, Spacing.l).padding(.top, Spacing.xs).background(Theme.background)
             }
         }
-        .sheet(item: $store.review) { preview in PracticeReviewSheet(preview: preview).interactiveDismissDisabled() }
         .sheet(isPresented: $store.showAssistant) { AssistantView() }
     }
 }
@@ -176,66 +175,83 @@ struct RootView: View {
 
 struct HomeView: View {
     @Environment(AppStore.self) private var store
+    @State private var loaded: (binding: BrokerConnectionBinding, snapshot: PaperSnapshot, at: Date)?
+    @State private var loading: BrokerConnectionBinding?
+    @State private var failed: BrokerConnectionBinding?
+
+    private var binding: BrokerConnectionBinding { .init(endpoint: store.aiEndpoint, token: store.aiToken) }
+    private var current: PaperSnapshot? { loaded?.binding == binding ? loaded?.snapshot : nil }
+
     var body: some View {
-        Screen(title: "TradePilot") {
+        Screen(title: "TradePilot", refresh: { await refresh() }) {
             connectionRow
-            SectionCard {
-                HStack { Eyebrow("Practice account"); Spacer(); StatusBadge("Practice", tone: .practice) }
-                HeroMetric(label: "Total value", value: money(store.engine.totalValue),
-                           delta: "\(signedMoney(store.engine.totalGain)) unrealised", deltaTone: store.engine.totalGain >= 0 ? .positive : .negative)
-                HStack(spacing: Spacing.l) {
-                    MetricTile(label: "Cash", value: money(store.engine.accounts.reduce(0) { $0 + $1.cash }))
-                    MetricTile(label: "Accounts", value: "\(store.engine.accounts.count)")
+            SectionCard(title: "Paper portfolio") {
+                if let current {
+                    PaperEquitySummary(snapshot: current)
+                    if failed == binding { Footnote("Showing the last loaded paper account.") }
+                } else if loading == binding {
+                    ProgressView("Loading paper portfolio").padding(.vertical, Spacing.m)
+                } else {
+                    Text(store.hasServerSettings ? "Your paper account is unavailable." : "Connect your server to see paper balances and activity.")
+                        .font(.subheadline).foregroundStyle(Theme.textSecondary)
                 }
-                Button { store.openAssistant() } label: { Label("Ask the assistant", systemImage: "bubble.left.and.text.bubble.right") }
-                    .buttonStyle(SecondaryButtonStyle())
-            }
-            SectionCard(title: "Your accounts") {
+                Divider().overlay(Theme.separator)
                 VStack(spacing: 0) {
-                    NavigationLink { WebullView() } label: { NavigationRow(title: "Webull", detail: "Brokerage", icon: "building.columns.fill") }
+                    NavigationLink { PaperTradingView() } label: { NavigationRow(title: "Paper account", detail: "Positions and orders", icon: "chart.pie") }
                     Divider().overlay(Theme.separator)
-                    NavigationLink { CoinbaseView() } label: { NavigationRow(title: "Coinbase", detail: "Crypto", icon: "bitcoinsign.circle") }
-                    Divider().overlay(Theme.separator)
-                    NavigationLink { PaperTradingView() } label: { NavigationRow(title: "Paper trading", detail: "Simulated account on your server", icon: "doc.text", badge: StatusBadge("Paper", tone: .paper)) }
+                    NavigationLink { AutomatedPaperView() } label: { NavigationRow(title: "Automated strategies", detail: "Scheduled paper experiments", icon: "clock.arrow.circlepath") }
                 }.buttonStyle(RowButtonStyle())
             }
-            SectionCard(title: "Practice holdings") {
-                let holdings = store.engine.holdings.filter { $0.quantity > 0 }
-                ForEach(holdings.prefix(5)) { h in
-                    HoldingRow(symbol: h.symbol, detail: "\(units(h.quantity)) \(h.kind == "Crypto" ? "" : "shares · ")\(store.engine.accountName(h.accountID))",
-                               value: money(h.value), change: signedMoney(h.gain), changeTone: h.gain >= 0 ? .positive : .negative)
-                }
-                NavigationLink { PracticeAccountView() } label: { Text("All holdings and accounts").font(.footnote.weight(.semibold)) }
+            SectionCard(title: "Broker accounts") {
+                VStack(spacing: 0) {
+                    NavigationLink { WebullView() } label: { NavigationRow(title: "Webull", detail: "Stocks and ETFs", icon: "building.columns") }
+                    Divider().overlay(Theme.separator)
+                    NavigationLink { CoinbaseView() } label: { NavigationRow(title: "Coinbase", detail: "Crypto asset balances", icon: "bitcoinsign.circle") }
+                }.buttonStyle(RowButtonStyle())
             }
-            SectionCard(title: "Recent practice orders") {
-                if store.engine.orders.isEmpty {
-                    EmptyState(title: "No orders yet", message: "Confirmed practice orders appear here. Practice data resets when you quit the app.", icon: "clock")
-                } else {
-                    ForEach(store.engine.orders.prefix(5)) { order in
-                        HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(order.preview.side.rawValue.capitalized) \(units(order.preview.quantity)) \(order.preview.symbol)").font(.subheadline.weight(.semibold))
-                                Text("\(store.engine.accountName(order.preview.accountID)) · \(relativeTime(order.createdAt))").font(.caption).foregroundStyle(Theme.textSecondary)
-                            }
-                            Spacer()
-                            StatusBadge.orderState(order.status.rawValue)
-                        }.padding(.vertical, Spacing.xs)
-                    }
-                }
+            SectionCard(title: "Practice") {
+                VStack(spacing: 0) {
+                    NavigationLink { PracticeAccountView() } label: { NavigationRow(title: "Practice account", detail: "Sample holdings on this iPhone", icon: "graduationcap") }
+                    Divider().overlay(Theme.separator)
+                    Button { store.openAssistant() } label: { NavigationRow(title: "Practice assistant", detail: "Review sample holdings or draft an order", icon: "bubble.left.and.text.bubble.right") }
+                }.buttonStyle(RowButtonStyle())
             }
         }
+        .task(id: binding) { await refresh() }
     }
+
     private var connectionRow: some View {
-        NavigationLink { SettingsView() } label: {
+        let label: String
+        let tint: Color
+        if !store.hasServerSettings { label = "Set up server"; tint = Theme.warning }
+        else if failed == binding { label = "Server unavailable"; tint = Theme.warning }
+        else if let loaded, loaded.binding == binding { label = "Server checked \(relativeTime(loaded.at))"; tint = Theme.positive }
+        else { label = "Checking server"; tint = Theme.textSecondary }
+        return NavigationLink { SettingsView() } label: {
             HStack(spacing: Spacing.s) {
-                Circle().fill(store.connected ? Theme.positive : Theme.warning).frame(width: 8, height: 8).accessibilityHidden(true)
-                Text(store.connected ? "Connected to your server" : "Server not set up").font(.footnote).foregroundStyle(Theme.textSecondary)
+                Circle().fill(tint).frame(width: 7, height: 7).accessibilityHidden(true)
+                Text(label).font(.footnote).foregroundStyle(Theme.textSecondary)
                 Spacer()
                 Image(systemName: "gearshape").foregroundStyle(Theme.textSecondary).accessibilityLabel("Settings")
             }
-            .padding(.horizontal, Spacing.m).padding(.vertical, Spacing.s)
-            .background(Theme.surface, in: Capsule())
+            .padding(.horizontal, Spacing.xs).frame(minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(RowButtonStyle())
+    }
+
+    private func refresh() async {
+        let request = binding
+        guard store.hasServerSettings, loading != request else { return }
+        loading = request
+        defer { if loading == request { loading = nil } }
+        do {
+            let snapshot: PaperSnapshot = try await WorkspaceAPI.request("v1/paper/state", body: EmptyWorkspaceRequest(), endpoint: request.endpoint, token: request.token)
+            guard !Task.isCancelled, request == binding else { return }
+            guard snapshot.mode == "paper" else { throw WorkspaceError(message: "Unexpected paper account response.") }
+            loaded = (request, snapshot, .now)
+            failed = nil
+        } catch {
+            if !Task.isCancelled, request == binding { failed = request }
+        }
     }
 }
 
@@ -245,15 +261,26 @@ struct PracticeAccountView: View {
     @Environment(AppStore.self) private var store
     var body: some View {
         @Bindable var store = store
+        let accounts = store.engine.accounts.filter { store.accountID == "all" || $0.id == store.accountID }
+        let holdings = store.visibleHoldings
+        let orders = store.engine.orders.filter { store.accountID == "all" || $0.preview.accountID == store.accountID }
+        let cash = accounts.reduce(0) { $0 + $1.cash }
+        let total = holdings.reduce(cash) { $0 + $1.value }
+        let gain = holdings.reduce(0) { $0 + $1.gain }
         SubScreen(title: "Practice account") {
             HStack { StatusBadge("Practice", tone: .practice); Spacer() }
             Footnote("Fixed sample prices in USD. Nothing here reaches a broker, and the data resets when you quit the app.")
             AccountPicker()
+            SectionCard(title: "Sample portfolio") {
+                HeroMetric(label: "Total value", value: money(total), delta: "\(signedMoney(gain)) unrealized",
+                           deltaTone: gain > 0 ? .positive : gain < 0 ? .negative : .neutral)
+                MetricTile(label: "Cash", value: money(cash))
+            }
             SectionCard(title: "Holdings") {
-                if store.visibleHoldings.isEmpty {
+                if holdings.isEmpty {
                     EmptyState(title: "No holdings", message: "This practice account holds only cash.")
                 } else {
-                    ForEach(store.visibleHoldings) { h in
+                    ForEach(holdings) { h in
                         HoldingRow(symbol: h.symbol, detail: "\(units(h.quantity)) · avg \(money(h.costPerUnit)) · \(store.engine.accountName(h.accountID))",
                                    value: money(h.value), change: signedMoney(h.gain), changeTone: h.gain >= 0 ? .positive : .negative)
                     }
@@ -261,12 +288,20 @@ struct PracticeAccountView: View {
                 NavigationLink { PortfolioTableScreen() } label: { Text("All columns").font(.footnote.weight(.semibold)) }
             }
             SectionCard(title: "Accounts") {
-                ForEach(store.engine.accounts) { a in
+                ForEach(accounts) { a in
                     DetailRow(a.name, money(a.cash) + (a.canTrade ? "" : " · view only"))
                 }
             }
             Button { store.openAssistant("Show my portfolio") } label: { Label("Ask about these holdings", systemImage: "bubble.left.and.text.bubble.right") }
                 .buttonStyle(SecondaryButtonStyle())
+            if !orders.isEmpty {
+                SectionCard(title: "Recent practice orders") {
+                    ForEach(orders.prefix(5)) { order in
+                        DetailRow("\(order.preview.side.rawValue.capitalized) \(units(order.preview.quantity)) \(order.preview.symbol)",
+                                  "\(StatusBadge.orderState(order.status.rawValue).text) · \(relativeTime(order.createdAt))")
+                    }
+                }
+            }
             #if DEBUG
             SectionCard(title: "Testing", footer: "The next confirmed practice order is rejected and leaves holdings unchanged.") {
                 Toggle("Reject the next practice order", isOn: $store.rejectNext).font(.subheadline)
@@ -370,7 +405,7 @@ struct AssistantView: View {
                 if store.busy { ProgressView().padding(Spacing.s) }
                 HStack(alignment: .bottom, spacing: Spacing.m) {
                     TextField("Ask about the practice account…", text: $store.input, axis: .vertical).lineLimit(1...5).font(.subheadline).submitLabel(.send).onSubmit { store.send() }
-                    Button { store.send() } label: { Image(systemName: "arrow.up").font(.headline).frame(width: 36, height: 36).background(Theme.accent, in: Circle()).foregroundStyle(Theme.background) }
+                    Button { store.send() } label: { Image(systemName: "arrow.up").font(.headline).frame(width: 44, height: 44).background(Theme.accent, in: Circle()).foregroundStyle(Theme.onAccent) }
                         .disabled(store.busy || store.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Send")
                 }.padding(Spacing.m).background(Theme.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous)).padding(.horizontal, Spacing.l).padding(.bottom, Spacing.m)
             }
@@ -379,6 +414,7 @@ struct AssistantView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .tint(Theme.accent)
+        .sheet(item: $store.review) { preview in PracticeReviewSheet(preview: preview).interactiveDismissDisabled() }
     }
     private func suggestion(_ text: String) -> some View {
         Button(text) { store.send(text) }.font(.caption.weight(.medium)).padding(.horizontal, Spacing.m).padding(.vertical, Spacing.s)
@@ -415,7 +451,7 @@ struct AccountsView: View {
     @Environment(AppStore.self) private var store
     var body: some View {
         Screen(title: "Accounts") {
-            SectionCard(title: "Live") {
+            SectionCard(title: "Broker accounts") {
                 VStack(spacing: 0) {
                     NavigationLink { WebullView() } label: { NavigationRow(title: "Webull", detail: "Stocks and ETFs", icon: "building.columns.fill") }
                     Divider().overlay(Theme.separator)
@@ -466,7 +502,7 @@ struct SettingsView: View {
                             setup = nil; saveNotice = "Saved on this device."; saveKind = .success
                         } catch { saveNotice = error.localizedDescription; saveKind = .error }
                     }.buttonStyle(PrimaryButtonStyle()).disabled(endpointDraft == store.aiEndpoint && tokenDraft == store.aiToken)
-                    Button(checking ? "Checking…" : "Test connection") { check() }.buttonStyle(SecondaryButtonStyle()).disabled(checking || !store.connected)
+                    Button(checking ? "Checking…" : "Test connection") { check() }.buttonStyle(SecondaryButtonStyle()).disabled(checking || !store.hasServerSettings)
                 }
                 OutcomeNotice(text: saveNotice, kind: saveKind)
                 if let connectionError = store.connectionError { InlineNotice(kind: .error, message: connectionError) }
@@ -475,7 +511,7 @@ struct SettingsView: View {
                 SectionCard(title: "Status", footer: "Configured means your server has credentials. Open an account to check that the provider accepts them.") {
                     statusRow("Server", "Reachable", tone: .positive)
                     statusRow("Market data", setup.market_data_configured ? "Configured" : "Not configured", tone: setup.market_data_configured ? .positive : .warning)
-                    statusRow("Assistant", setup.ai_configured ? (setup.ai_provider == "ollama" ? "Local model on your Mac" : "OpenAI") + (setup.ai_model.map { " · \($0)" } ?? "") : "Not configured", tone: setup.ai_configured ? .positive : .warning)
+                    statusRow("Assistant", setup.ai_configured ? (setup.ai_provider == "ollama" ? "Local model on your server" : "OpenAI") + (setup.ai_model.map { " · \($0)" } ?? "") : "Not configured", tone: setup.ai_configured ? .positive : .warning)
                     statusRow("Webull", setup.webull_configured ? "Configured" : "Not configured", tone: setup.webull_configured ? .positive : .warning, badge: setup.webull_configured ? StatusBadge.environment(setup.webull_environment) : nil)
                     statusRow("Coinbase", setup.coinbase_configured.map { $0 ? "Configured" : "Not configured" } ?? "Not reported", tone: setup.coinbase_configured == true ? .positive : .neutral)
                     statusRow("Live Webull orders", setup.live_trading_enabled ? "On" : "Off", tone: setup.live_trading_enabled ? .live : .neutral)
@@ -488,7 +524,7 @@ struct SettingsView: View {
             }
             SectionCard(title: "About this install") {
                 DetailRow("Version", "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"))")
-                Footnote("Your Mac must be awake and on the same network as this phone. Never type a brokerage password into this app.")
+                Footnote("Keep your server awake and connect this iPhone to its private network.")
             }
         }
         .onAppear { endpointDraft = store.aiEndpoint; tokenDraft = store.aiToken }

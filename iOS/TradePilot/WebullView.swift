@@ -23,7 +23,7 @@ enum BrokerBalanceSummary {
               currency.count == 3, currency.allSatisfy({ $0.isASCII && $0.isUppercase }) else { return [] }
         let fields = [("total_net_liquidation_value", "Net liquidation value"),
                       ("total_market_value", "Market value"), ("total_cash_balance", "Cash"),
-                      ("total_unrealized_profit_loss", "Unrealised P/L"),
+                      ("total_unrealized_profit_loss", "Unrealized P/L"),
                       ("total_day_profit_loss", "Day P/L")]
         return fields.compactMap { key, title in
             guard let value = values[key] as? String, let number = strictDecimal(value) else { return nil }
@@ -59,7 +59,7 @@ struct BrokerExecutionTotals: Decodable {
 struct BrokerExecutionNotional: Decodable {
     let buy: String; let sell: String
 }
-struct BrokerConnectionBinding {
+struct BrokerConnectionBinding: Equatable, Sendable {
     let endpoint: String
     let token: String
     func matches(endpoint: String, token: String) -> Bool {
@@ -193,6 +193,7 @@ struct WebullView: View {
     @State private var receipt: BrokerReceipt?
     @State private var attempted = false
     @State private var busy = false
+    @State private var liveOrderAccess: Bool?
     @State private var status = ""
     @State private var statusKind: NoticeKind = .info
     @State private var sheetStatus = ""
@@ -209,15 +210,22 @@ struct WebullView: View {
 
     var body: some View {
         SubScreen(title: "Webull", refresh: { await refreshCurrent() }) {
-            HStack(spacing: Spacing.s) {
-                StatusBadge.environment(snapshot?.environment)
-                if let snapshot, portfolioAccount == account, !account.isEmpty { Text("Updated \(relativeTime(snapshot.as_of))").font(.footnote).foregroundStyle(Theme.textTertiary) }
-                Spacer()
-                if busy { ProgressView() }
+            if let snapshot {
+                HStack(spacing: Spacing.s) {
+                    StatusBadge.environment(snapshot.environment)
+                    if isLive, liveOrderAccess == false { StatusBadge("Orders off") }
+                    Spacer()
+                    if busy { ProgressView() }
+                }
+                if portfolioAccount == account, !account.isEmpty { Footnote("Account loaded \(relativeTime(snapshot.as_of))") }
+            } else if busy {
+                ProgressView("Loading Webull accounts")
             }
+            OutcomeNotice(text: status, kind: statusKind)
             if !pendingID.isEmpty { pendingSection }
             if let snapshot {
                 SectionCard {
+                    Eyebrow("Account")
                     Picker("Account", selection: $account) {
                         Text("Select an account").tag("")
                         ForEach(snapshot.accounts) { Text($0.label).tag($0.id) }
@@ -227,7 +235,14 @@ struct WebullView: View {
                 if portfolioAccount == account, !account.isEmpty {
                     portfolioSection(snapshot)
                     executionSection(snapshot)
-                    if pendingID.isEmpty && review == nil { orderForm }
+                    if pendingID.isEmpty && review == nil {
+                        if snapshot.environment == "sandbox" || liveOrderAccess == true { orderForm }
+                        else if liveOrderAccess == false {
+                            InlineNotice(kind: .info, message: "Live order placement is off. You can view balances, positions, and past orders.")
+                        } else {
+                            InlineNotice(kind: .info, message: "Order availability could not be checked. Pull down to refresh.")
+                        }
+                    }
                 } else if !account.isEmpty, !busy {
                     EmptyState(title: "Not loaded", message: "Pull down to load this account.", icon: "arrow.down")
                 }
@@ -241,7 +256,6 @@ struct WebullView: View {
                     Footnote("Sent is not filled. Check the status until the broker reports a final state.")
                 }
             }
-            OutcomeNotice(text: status, kind: statusKind)
         }
         .task { if snapshot == nil { await refreshCurrent() } }
         .onConnectionChange(store) { invalidateConnection() }
@@ -324,19 +338,23 @@ struct WebullView: View {
                 Eyebrow("Balances")
                 Footnote("Webull did not return a summary for this account.")
             }
-            HStack(spacing: Spacing.l) {
+            MetricsGrid {
                 ForEach(lines.filter { ["total_cash_balance", "total_market_value", "total_unrealized_profit_loss"].contains($0.id) }) { line in
                     MetricTile(label: line.title, value: line.value, tone: line.id == "total_unrealized_profit_loss" ? line.tone : nil)
                 }
             }
         }
-        SectionCard(title: "Holdings") {
+        SectionCard(title: "Positions") {
             if snapshot.positions.isEmpty {
                 EmptyState(title: "No open holdings", message: "Positions in this account appear here.", icon: "chart.pie")
             } else {
-                ForEach(snapshot.positions) { p in
-                    HoldingRow(symbol: p.symbol, detail: "\(p.quantity) shares · avg \(gatewayMoney(p.cost, currency: p.currency))",
-                               value: gatewayMoney(p.price, currency: p.currency), change: gatewayMoney(p.gain, currency: p.currency, signed: true), changeTone: deltaColorTone(p.gain))
+                Eyebrow("Last price and unrealized P/L")
+                VStack(spacing: 0) {
+                    ForEach(snapshot.positions) { p in
+                        if p.id != snapshot.positions.first?.id { Divider().overlay(Theme.separator) }
+                        HoldingRow(symbol: p.symbol, detail: "\(p.quantity) \(p.kind == "EQUITY" ? "shares" : "units") · avg \(gatewayMoney(p.cost, currency: p.currency))",
+                                   value: gatewayMoney(p.price, currency: p.currency), change: gatewayMoney(p.gain, currency: p.currency, signed: true), changeTone: deltaColorTone(p.gain))
+                    }
                 }
             }
         }
@@ -345,7 +363,7 @@ struct WebullView: View {
     @ViewBuilder private func executionSection(_ snapshot: BrokerSnapshot) -> some View {
         SectionCard(title: "Orders placed from TradePilot", footer: "Doesn’t include orders placed elsewhere. Notional is the executed amount, not profit or loss.") {
             if let executions, executions.account_id == account, executions.environment == snapshot.environment {
-                HStack(spacing: Spacing.l) {
+                MetricsGrid {
                     MetricTile(label: "Filled", value: "\(executions.totals.filled_orders)")
                     MetricTile(label: "Partial", value: "\(executions.totals.partial_orders)")
                     MetricTile(label: "Fees", value: executions.totals.fees_known ? "Reported" : "Incomplete")
@@ -416,6 +434,7 @@ struct WebullView: View {
     }
     private func invalidateConnection() {
         snapshot = nil; portfolioAccount = nil; executions = nil; review = nil; reviewBinding = nil; receipt = nil
+        liveOrderAccess = nil; account = ""
         cancellation = nil; cancellationBinding = nil
         status = pendingID.isEmpty ? "" : "Connection changed. The pending order stays locked until its status is checked from its original server."; statusKind = .warning
     }
@@ -521,9 +540,25 @@ struct WebullView: View {
         }
     }
     private func load() async throws {
+        let binding = BrokerConnectionBinding(endpoint: store.aiEndpoint, token: store.aiToken)
         let requestedAccount = account
-        snapshot = try await api("state", requestedAccount.isEmpty ? [:] : ["account_id": requestedAccount])
+        let result: BrokerSnapshot = try await api("state", requestedAccount.isEmpty ? [:] : ["account_id": requestedAccount])
+        guard ["production", "sandbox"].contains(result.environment),
+              result.as_of.isFinite, result.as_of > 0,
+              requestedAccount.isEmpty || result.accounts.contains(where: { $0.id == requestedAccount }) else {
+            throw WorkspaceError(message: "Webull returned an unexpected account response. Pull down to refresh.")
+        }
+        guard account == requestedAccount, binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
+        snapshot = result
         portfolioAccount = requestedAccount.isEmpty ? nil : requestedAccount
+        liveOrderAccess = nil
+        if result.environment == "production", !requestedAccount.isEmpty,
+           let setup = try? await AIService.setup(endpoint: binding.endpoint, token: binding.token),
+           account == requestedAccount, binding.matches(endpoint: store.aiEndpoint, token: store.aiToken),
+           setup.webull_environment == result.environment {
+            liveOrderAccess = setup.webull_configured && setup.live_trading_enabled
+        }
+        guard account == requestedAccount, binding.matches(endpoint: store.aiEndpoint, token: store.aiToken) else { return }
         if status.hasPrefix("Couldn’t") || statusKind == .error { status = "" }
     }
     private func loadExecutions() async throws {
