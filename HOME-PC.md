@@ -20,8 +20,10 @@ Use a dedicated Ubuntu 24.04 x86-64 VM if Hyper-V is available and the PC has ro
 ## Stage and validate
 
 1. Export the reviewed commit using `git archive` and transfer it over verified SSH. Install the Linux dependencies and public model weights using `deploy/remote/install.sh` inside the guest.
-2. Use fake state to exercise the gateway, Qwen assistant, and pinned Kronos replay. Check both models against the app's timeout and inspect their memory use on the actual PC. Qwen3.5:4b is the initial CPU test model. Select a larger model only after checking available RAM or GPU capacity.
+2. Use synthetic data to exercise the gateway, Qwen assistant, and pinned Kronos replay. Check both models against the 90-second server timeout and inspect memory use on the actual PC. Verify that the assistant shows holdings, asks for shares when given a dollar-denominated order, and returns exact terms for an explicit share proposal.
 3. Configure VM startup with Windows and graceful guest shutdown. For Hyper-V, use `Set-VM -Name TradePilot -AutomaticStartAction Start -AutomaticStopAction ShutDown` after the VM exists. Verify that the gateway can recover after a host reboot and that the PC can stay awake on AC power while the display is off. [Hyper-V start and stop settings](https://learn.microsoft.com/en-us/powershell/module/hyper-v/set-vm)
+
+Benchmark `qwen3.5:4b` on the PC before cutover. It exceeded the deadline in a four-CPU ARM64 Linux rehearsal. The 2B Q4 trial showed the holdings and clarified a dollar amount, then asked for a share count on an order that already included one. That trial failed the exact-share proposal check. Kronos completed both replay horizons on emulated x86-64 Ubuntu. Record the assistant model digest, latency and memory use on the actual PC. [Ollama model tags](https://ollama.com/library/qwen3.5/tags)
 
 ## Move the paper ledger and pair the iPhone
 

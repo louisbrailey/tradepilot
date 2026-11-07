@@ -63,7 +63,14 @@ class LocalAITests(unittest.TestCase):
         self.assertEqual(calls[1].args[0], "/api/chat")
         self.assertEqual(calls[1].kwargs["timeout"], 90)
         body = calls[1].args[1]
-        self.assertEqual(body["format"], server.SCHEMA)
+        nontrade, trade = body["format"]["oneOf"]
+        self.assertEqual(nontrade["properties"]["kind"]["enum"], ["message", "portfolio"])
+        self.assertEqual(trade["properties"]["kind"], {"const": "trade"})
+        for field in ("side", "quantity", "symbol"):
+            self.assertIn(field, nontrade["required"])
+            self.assertIn(field, trade["required"])
+            self.assertEqual(nontrade["properties"][field]["type"], "null")
+            self.assertEqual(trade["properties"][field]["type"], "string")
         self.assertFalse(body["stream"]); self.assertFalse(body["think"])
         self.assertFalse(body["truncate"]); self.assertFalse(body["shift"])
         self.assertEqual(body["options"]["temperature"], 0)
