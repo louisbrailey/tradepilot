@@ -24,7 +24,7 @@ Open `iOS/TradePilot.xcodeproj` in Xcode. Select TradePilot and an installed iPh
 
 Phone connection checks and the assistant toggle are under **Accounts → Settings** (also the gear on Home).
 
-Free development signing expires every seven days. The `com.tradepilot.keep-signed` launch agent (`scripts/keep-iphone-signed.py`) checks hourly and, within two days of expiry, rebuilds the committed `main` branch with a fresh profile and installs it whenever the iPhone is reachable over USB or Wi-Fi. It never copies pairing data or launches the app. Check it with `python3 scripts/keep-iphone-signed.py status`; remove it with `python3 scripts/keep-iphone-signed.py remove`. Its log is in `~/Library/Application Support/TradePilot/keep-signed/`.
+Free development signing expires every seven days. The `com.tradepilot.keep-signed` launch agent (`scripts/keep-iphone-signed.py`) checks hourly and, within two days of expiry, rebuilds the committed `main` branch with a fresh profile and installs it whenever the iPhone is reachable over USB or Wi-Fi. It never copies pairing data or launches the app. Renewal needs the Apple ID for team ANWNGW59GP signed in under Xcode → Settings → Accounts; as of November 6 none is signed in, and the agent posts a macOS notification once a day until one is. `renew` asks Apple for a new profile without the phone. Check it with `python3 scripts/keep-iphone-signed.py status`; remove it with `python3 scripts/keep-iphone-signed.py remove`. Its log is in `~/Library/Application Support/TradePilot/keep-signed/`.
 
 The already-deployed local gateway is described in [LOCAL-SERVICE.md](LOCAL-SERVICE.md). Configure inference with [LOCAL-AI.md](LOCAL-AI.md). Credentials and private runtime files are deliberately excluded from the source ZIP.
 

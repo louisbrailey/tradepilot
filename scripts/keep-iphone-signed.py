@@ -11,6 +11,7 @@ file, never touches gateway data, and does not launch the app.
   remove                  unload it and keep its log and state
   status                  show the agent, the profile expiry and the last install
   run [--force]           one check now (the agent runs this hourly)
+  renew                   ask Apple for a new local profile now (no phone needed); the next run installs it
 """
 from __future__ import annotations
 
@@ -118,24 +119,40 @@ def build_and_install(device: str, source: Path, derived: Path) -> Path:
     return app
 
 
-def run(device: str, force: bool = False, now: float | None = None) -> str:
-    now = time.time() if now is None else now
-    profiles = app_profiles()
-    expiry = profiles[0][1] if profiles else None
-    if not force and not needs_refresh(expiry, now):
-        return "profile valid for another %.1f days; nothing to do" % ((expiry - now) / 86400)
-    retry_after = load_state().get("retry_after", 0)
-    if not force and expiry is not None and expiry > now and now < retry_after:
-        return "Apple returned the current profile last time; waiting to retry"
-    if not device_reachable(device):
-        return "iPhone not reachable over USB or Wi-Fi; will retry"
+def renew_profile_aside(profiles: list[tuple[Path, float]]) -> list[tuple[Path, Path]]:
+    """Move local TradePilot profiles aside so Xcode requests a new one; returns (saved, original) pairs."""
     backup = STATE_DIR / "profile-backup"
     backup.mkdir(mode=0o700, parents=True, exist_ok=True)
     moved = []
-    for path, _ in profiles:  # Xcode requests a new profile when no local copy remains.
+    for path, _ in profiles:
         target = backup / path.name
         shutil.move(str(path), str(target))
         moved.append((target, path))
+    return moved
+
+
+def restore(moved: list[tuple[Path, Path]]) -> None:
+    for saved, original in moved:
+        if not original.exists():
+            shutil.move(str(saved), str(original))
+
+
+def run(device: str, force: bool = False, now: float | None = None) -> str:
+    """One check. Decisions follow the profile inside the build on the phone, not the Mac's copy."""
+    now = time.time() if now is None else now
+    state = load_state()
+    profiles = app_profiles()
+    local_expiry = profiles[0][1] if profiles else None
+    installed_expiry = state.get("profile_expires_at", local_expiry)
+    if not force and not needs_refresh(installed_expiry, now):
+        return "installed app is signed for another %.1f days; nothing to do" % ((installed_expiry - now) / 86400)
+    if (not force and installed_expiry is not None and installed_expiry > now
+            and now < state.get("retry_after", 0)):
+        return "Apple returned the current profile last time; waiting to retry"
+    if not device_reachable(device):
+        return "iPhone not reachable over USB or Wi-Fi; will retry"
+    # Renew the Mac's copy only if it is close to expiry too; a fresh one is reused as is.
+    moved = renew_profile_aside(profiles) if force or needs_refresh(local_expiry, now) else []
     with tempfile.TemporaryDirectory(prefix="tradepilot-sign-", dir=BUILD_ROOT if BUILD_ROOT.is_dir() else None) as folder:
         source, derived = Path(folder) / "source", Path(folder) / "derived"
         source.mkdir()
@@ -143,21 +160,66 @@ def run(device: str, force: bool = False, now: float | None = None) -> str:
             commit = export_main(source)
             build_and_install(device, source, derived)
         except Exception:
-            for saved, original in moved:
-                if not original.exists():
-                    shutil.move(str(saved), str(original))
+            restore(moved)
             raise
     for saved, _ in moved:
         saved.unlink(missing_ok=True)
     renewed = app_profiles()
     new_expiry = renewed[0][1] if renewed else None
     # If Apple handed back the same profile, retry in 12 hours (or right after it expires).
-    unchanged = new_expiry is not None and expiry is not None and new_expiry <= expiry + 60
+    unchanged = new_expiry is not None and installed_expiry is not None and new_expiry <= installed_expiry + 60
     save_state({"device": device, "installed_commit": commit, "installed_at": now,
-                "profile_expires_at": new_expiry, "previous_expiry": expiry,
-                "retry_after": min(expiry, now + 12 * 3600) if unchanged else 0})
+                "profile_expires_at": new_expiry, "previous_expiry": installed_expiry,
+                "retry_after": min(installed_expiry, now + 12 * 3600) if unchanged else 0})
     when = datetime.fromtimestamp(new_expiry).astimezone().strftime("%b %d %H:%M %Z") if new_expiry else "unknown"
     return f"installed {commit[:12]}; profile now expires {when}"
+
+
+def renew(now: float | None = None) -> str:
+    """Ask Apple for a new local profile with a device-independent build; the next run installs it."""
+    now = time.time() if now is None else now
+    profiles = app_profiles()
+    before = profiles[0][1] if profiles else None
+    moved = renew_profile_aside(profiles)
+    environment = {**os.environ, "DEVELOPER_DIR": os.environ.get("DEVELOPER_DIR", DEVELOPER_DIR)}
+    with tempfile.TemporaryDirectory(prefix="tradepilot-renew-", dir=BUILD_ROOT if BUILD_ROOT.is_dir() else None) as folder:
+        source = Path(folder) / "source"
+        source.mkdir()
+        try:
+            export_main(source)
+            build = subprocess.run(["xcodebuild", "-project", str(source / "iOS" / "TradePilot.xcodeproj"), "-scheme", "TradePilot",
+                                    "-destination", "generic/platform=iOS", "-derivedDataPath", str(Path(folder) / "derived"),
+                                    "-allowProvisioningUpdates", "build"], capture_output=True, text=True, env=environment, timeout=3600)
+            if build.returncode:
+                raise RuntimeError("xcodebuild failed: " + (build.stdout + build.stderr)[-1500:])
+        except Exception:
+            restore(moved)
+            raise
+    for saved, _ in moved:
+        saved.unlink(missing_ok=True)
+    after = app_profiles()
+    expiry = after[0][1] if after else None
+    when = datetime.fromtimestamp(expiry).astimezone().strftime("%b %d %H:%M %Z") if expiry else "unknown"
+    verdict = "renewed" if expiry and before and expiry > before + 60 else "unchanged"
+    return f"local profile {verdict}; expires {when}"
+
+
+SIGN_IN = ("Xcode has no Apple account, so TradePilot's signing cannot be renewed. "
+           "Open Xcode, Settings, Accounts and sign in with the Apple ID for team ANWNGW59GP.")
+
+
+def explain(error: Exception, now: float | None = None) -> str:
+    """User-facing reason for a failed refresh; asks the owner to act through a macOS notification once a day."""
+    text = str(error)
+    if "No Accounts" not in text and "No profiles for" not in text:
+        return f"refresh failed: {text[-600:]}"
+    now = time.time() if now is None else now
+    state = load_state()
+    if now - state.get("notified_at", 0) >= 86400:
+        subprocess.run(["osascript", "-e", f'display notification "{SIGN_IN}" with title "TradePilot signing"'],
+                       capture_output=True, timeout=30)
+        save_state({**state, "notified_at": now})
+    return "refresh needs action: " + SIGN_IN
 
 
 def plist(device: str) -> dict:
@@ -172,6 +234,11 @@ def plist(device: str) -> dict:
 
 
 def install(device: str) -> None:
+    if "profile_expires_at" not in load_state():
+        # Until the agent installs a build itself, assume the phone's app carries the Mac's current profile.
+        profiles = app_profiles()
+        save_state({"device": device, "profile_expires_at": profiles[0][1] if profiles else None,
+                    "note": "assumed from the local profile when the agent was installed"})
     destination = agent_path()
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(plistlib.dumps(plist(device)))
@@ -195,15 +262,18 @@ def status() -> None:
     state = load_state()
     print(f"{LABEL}: {'loaded' if loaded else 'not loaded'}")
     if profiles:
-        print("profile expires:", datetime.fromtimestamp(profiles[0][1]).astimezone().strftime("%Y-%m-%d %H:%M %Z"))
-    if state:
-        print("last install:", state.get("installed_commit", "")[:12],
+        print("Mac profile expires:", datetime.fromtimestamp(profiles[0][1]).astimezone().strftime("%Y-%m-%d %H:%M %Z"))
+    if state.get("profile_expires_at"):
+        print("app on iPhone signed until:",
+              datetime.fromtimestamp(state["profile_expires_at"]).astimezone().strftime("%Y-%m-%d %H:%M %Z"))
+    if state.get("installed_at"):
+        print("last install by agent:", state.get("installed_commit", "")[:12],
               datetime.fromtimestamp(state["installed_at"]).astimezone().strftime("%Y-%m-%d %H:%M %Z"))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("install", "remove", "status", "run"))
+    parser.add_argument("command", choices=("install", "remove", "status", "run", "renew"))
     parser.add_argument("--device", help="iPhone UDID from `xcrun devicectl list devices`")
     parser.add_argument("--force", action="store_true", help="refresh even if the profile is not close to expiry")
     args = parser.parse_args()
@@ -215,11 +285,17 @@ def main() -> None:
         remove()
     elif args.command == "status":
         status()
+    elif args.command == "renew":
+        try:
+            log(renew())
+        except Exception as error:
+            log(explain(error))
+            sys.exit(1)
     else:
         try:
             log(run(args.device, force=args.force))
         except Exception as error:
-            log(f"refresh failed: {error}")
+            log(explain(error))
             sys.exit(1)
 
 

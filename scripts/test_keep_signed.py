@@ -81,6 +81,10 @@ class KeepSignedTests(unittest.TestCase):
         self.profile("current.mobileprovision", NOW + 4 * 86400)
         with mock.patch.object(MODULE, "device_reachable") as reachable:
             self.assertIn("nothing to do", MODULE.run(DEVICE, now=NOW))
+        # A fresh Mac profile does not hide an app on the phone that is about to expire.
+        MODULE.save_state({"profile_expires_at": NOW + 3600})
+        with mock.patch.object(MODULE, "device_reachable", return_value=False):
+            self.assertIn("not reachable", MODULE.run(DEVICE, now=NOW))
         reachable.assert_not_called()
 
     def test_unreachable_phone_waits(self):
@@ -123,6 +127,26 @@ class KeepSignedTests(unittest.TestCase):
             MODULE.run(DEVICE, now=NOW + 3601)  # expired: try again
             self.assertEqual(build.call_count, 2)
 
+    def test_fresh_mac_profile_is_reused_when_only_the_phone_needs_it(self):
+        self.profile("fresh.mobileprovision", NOW + 6 * 86400)
+        MODULE.save_state({"profile_expires_at": NOW + 3600})
+
+        def keep(device, source, derived):
+            self.assertTrue((self.profiles / "fresh.mobileprovision").exists(), "a fresh profile must not be set aside")
+        with mock.patch.object(MODULE, "device_reachable", return_value=True), \
+                mock.patch.object(MODULE, "export_main", return_value="abc"), \
+                mock.patch.object(MODULE, "build_and_install", side_effect=keep):
+            MODULE.run(DEVICE, now=NOW)
+        state = json.loads((self.state / "state.json").read_text())
+        self.assertEqual((state["profile_expires_at"], state["retry_after"]), (NOW + 6 * 86400, 0))
+
+    def test_install_assumes_the_phone_has_the_current_mac_profile(self):
+        self.profile("current.mobileprovision", NOW + 4 * 86400)
+        with mock.patch.object(MODULE.subprocess, "run", return_value=mock.Mock(returncode=0, stderr="")), \
+                mock.patch.object(MODULE, "agent_path", return_value=self.state / "agent.plist"):
+            MODULE.install(DEVICE)
+        self.assertEqual(json.loads((self.state / "state.json").read_text())["profile_expires_at"], NOW + 4 * 86400)
+
     def test_failed_build_restores_the_previous_profile(self):
         self.profile("current.mobileprovision", NOW + 3600)
         with mock.patch.object(MODULE, "device_reachable", return_value=True), \
@@ -132,6 +156,18 @@ class KeepSignedTests(unittest.TestCase):
                 MODULE.run(DEVICE, now=NOW)
         self.assertTrue((self.profiles / "current.mobileprovision").exists())
         self.assertFalse((self.state / "state.json").exists())
+
+    def test_missing_xcode_account_asks_the_owner_once_a_day(self):
+        error = RuntimeError("xcodebuild failed: error: No Accounts: Add a new account in Accounts settings.")
+        with mock.patch.object(MODULE.subprocess, "run") as run:
+            self.assertIn("sign in with the Apple ID", MODULE.explain(error, now=NOW))
+            self.assertIn("sign in with the Apple ID", MODULE.explain(error, now=NOW + 3600))
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[0][0], "osascript")
+            MODULE.explain(error, now=NOW + 86401)
+            self.assertEqual(run.call_count, 2)
+            self.assertIn("refresh failed", MODULE.explain(RuntimeError("disk full"), now=NOW))
+            self.assertEqual(run.call_count, 2)
 
     def test_launch_agent_checks_hourly_without_pairing_or_launch(self):
         definition = MODULE.plist(DEVICE)
