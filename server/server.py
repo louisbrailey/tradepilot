@@ -24,6 +24,7 @@ from paper_automation import start_worker
 from inference_guard import local_inference_lock
 from network_watch import interface_address, watch_interface
 from kronos_service import request as kronos_request, KronosError
+from market_service import MARKET_ROUTES, MarketDataError, MarketRequestError, market_request
 
 _broker = None
 _broker_lock = threading.Lock()
@@ -435,7 +436,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
-        if self.path not in WORKSPACE_ROUTES + ACCESS_ROUTES + ("/v1/kronos/status", "/v1/kronos/replay", "/v1/setup", "/v1/assistant", "/v1/research", "/v1/research/evaluation", "/v1/webull/state", "/v1/webull/executions", "/v1/webull/review", "/v1/webull/confirm", "/v1/webull/status", "/v1/webull/dismiss", "/v1/webull/cancel/review", "/v1/webull/cancel/confirm"):
+        if self.path not in WORKSPACE_ROUTES + ACCESS_ROUTES + MARKET_ROUTES + ("/v1/kronos/status", "/v1/kronos/replay", "/v1/setup", "/v1/assistant", "/v1/research", "/v1/research/evaluation", "/v1/webull/state", "/v1/webull/executions", "/v1/webull/review", "/v1/webull/confirm", "/v1/webull/status", "/v1/webull/dismiss", "/v1/webull/cancel/review", "/v1/webull/cancel/confirm"):
             return self.reply(404, {"error": "Not found"})
         expected = os.environ.get("APP_ACCESS_TOKEN", "")
         authorization = self.headers.get_all("Authorization", [])
@@ -464,6 +465,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(payload, dict) or payload:
                     raise ValueError("Expected an empty evaluation request")
                 result = load_evaluation()
+            elif self.path in MARKET_ROUTES:
+                result = market_request(self.path, payload)
             elif self.path.startswith("/v1/kronos/"):
                 result = kronos_request(self.path, payload)
             elif self.path in ACCESS_ROUTES:
@@ -481,6 +484,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = assistant(payload)
         except KronosError as error:
             return self.reply(503, {"error": str(error)})
+        except MarketDataError as error:
+            return self.reply(503, {"error": str(error)})
+        except MarketRequestError as error:
+            return self.reply(400, {"error": str(error)})
         except (BrokerError, AdmissionError) as error:
             return self.reply(409, {"error": str(error)})
         except (ValueError, TypeError):
