@@ -64,3 +64,10 @@ python3 "$HOME/Library/Application Support/TradePilot/gateway/scripts/manage-loc
 Removal unloads only `com.tradepilot.private-gateway` for the current user and moves its plist to a recoverable `.removed` backup. It preserves the deployment, credentials, certificates, logs, and all journal data.
 
 To update, stop/remove the running TradePilot service, deploy the updated source into a new directory using the **currently active deployment's** `private` directory and `private/market.env` as inputs, and install the new deployment. Retain the stopped previous version for rollback. Once a new deployment has accepted orders, its current journal and token files are authoritative; never roll back to a stale journal snapshot.
+
+For code-only updates of the installed deployment, use the in-place updater with the deployment's own Python. `plan` lists the runtime files that differ from the checkout; `apply` backs them up into `private/code-backup-update-*`, installs changed and new files atomically, restarts the launch agent and runs an authenticated, certificate-pinned health check; `rollback --backup NAME` restores a backup and removes the files it added. It never writes credentials, pairing or ledgers, and never prints secrets.
+
+```sh
+"$HOME/Library/Application Support/TradePilot/gateway-20260923/venv/bin/python" scripts/update-local-gateway.py plan
+"$HOME/Library/Application Support/TradePilot/gateway-20260923/venv/bin/python" scripts/update-local-gateway.py apply
+```

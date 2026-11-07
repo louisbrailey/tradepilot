@@ -15,6 +15,9 @@
 
 - [x] Automated paper version 1: three frozen SPY protocols, independent simulated accounts, background scheduling, data/drawdown stops, durable evidence, phone controls and first forward observation verified November 5.
 - [x] Observe the first future-session settlement. All three runs recorded November 6, 2026. The mean reversion strategy settled its first simulated fill and the other two remained in cash.
+- [x] Markets tab, quote pages, price alerts and current-session paper prices (0.5.0): full gate, live read-only data smoke and simulator checks. See reports/release-0.5.0-2026-11-06.md.
+- [ ] Deploy 0.5.0 gateway code to the Mac with `scripts/update-local-gateway.py apply` (blocked for Claude by the permission policy; owner can run it).
+- [ ] Install 0.5.0 on the iPhone after trusting the developer profile, and check Markets, a quote page and an alert on the device.
 - [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy.
 - [ ] Stage and verify the gateway on the home PC, then move the active ledger and pair the iPhone. See [home PC setup](../HOME-PC.md).
 
