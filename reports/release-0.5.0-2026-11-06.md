@@ -38,6 +38,6 @@ The Mac was heavily loaded during checks (load average above 500 from staging VM
   ```
 
   The paper scheduler restarts with the gateway; its next scheduled session is November 9.
-- **Phone install.** 0.5.0 is not installed on the iPhone. The phone must be connected and trust the developer profile (Settings → General → VPN & Device Management); then run `scripts/install-iphone.sh DEVICE_ID`. The development signing profile expires November 11, 2026 at 00:35 Pacific.
+- **Phone launch.** `scripts/install-iphone.sh` built, signed and installed 0.5.0 (build 6) on the USB iPhone 16 (`devicectl` reports version 0.5.0, bundle version 6). iOS refused to launch it: the developer profile has not been explicitly trusted on the phone, as with 0.4.1. On the iPhone open Settings → General → VPN & Device Management, choose the Apple Development profile and trust or verify it (the phone needs an internet connection), then open TradePilot. The development signing profile expires November 11, 2026 at 00:35 Pacific; rebuild with Xcode signed in before then.
 - **Push notifications** need a paid Apple Developer membership and an APNs key; until then alerts appear when the app is open.
 - The GitHub repository is public; nothing secret is in its history (gitleaks and trufflehog found nothing), but device names, hostnames and setup details are visible. Pushing these commits is held until the owner decides on visibility.

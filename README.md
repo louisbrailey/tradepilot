@@ -2,7 +2,7 @@
 
 A native iPhone assistant for reviewing portfolios, preparing explicitly confirmed trades, and keeping research and a trade journal together.
 
-**Current verified status:** version 0.5.0 adds Markets (watchlist, movers, search, quote pages with charts and statistics), price alerts and current-session paper prices; it passed the full gate, a read-only live data smoke and simulator checks. It is not yet deployed to the Mac gateway or installed on the iPhone; see [latest status](LATEST-STATUS.md). The phone still has 0.4.1, which iOS refused to launch at the developer-trust check. Webull and Coinbase read access, local AI, Massive research and Kronos replay have prior physical-phone verification. The Mac scheduler is recording three automated SPY paper experiments. Live trading and transfers are disabled. See [the paper protocol](AUTOMATED-PAPER.md).
+**Current verified status:** version 0.5.0 adds Markets (watchlist, movers, search, quote pages with charts and statistics), price alerts and current-session paper prices; it passed the full gate, a read-only live data smoke and simulator checks. It is installed on the USB iPhone 16 but waits for the developer profile to be trusted on the phone, and its gateway code is not yet deployed to the Mac; see [latest status](LATEST-STATUS.md). Webull and Coinbase read access, local AI, Massive research and Kronos replay have prior physical-phone verification. The Mac scheduler is recording three automated SPY paper experiments. Live trading and transfers are disabled. See [the paper protocol](AUTOMATED-PAPER.md).
 
 Kronos is available under **Research → Kronos forecasting lab** for local historical forecasts and baseline comparisons. See [Kronos setup and verification](KRONOS.md).
 
