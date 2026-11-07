@@ -24,7 +24,8 @@ from paper_automation import start_worker
 from inference_guard import local_inference_lock
 from network_watch import interface_address, watch_interface
 from kronos_service import request as kronos_request, KronosError
-from market_service import MARKET_ROUTES, MarketDataError, MarketRequestError, market_request
+from market_service import MARKET_ROUTES, MarketDataError, MarketRequestError, market_request, service as market_data
+from alerts_service import ALERT_ROUTES, AlertError, alerts, alerts_request, start_alert_worker
 
 _broker = None
 _broker_lock = threading.Lock()
@@ -436,7 +437,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
-        if self.path not in WORKSPACE_ROUTES + ACCESS_ROUTES + MARKET_ROUTES + ("/v1/kronos/status", "/v1/kronos/replay", "/v1/setup", "/v1/assistant", "/v1/research", "/v1/research/evaluation", "/v1/webull/state", "/v1/webull/executions", "/v1/webull/review", "/v1/webull/confirm", "/v1/webull/status", "/v1/webull/dismiss", "/v1/webull/cancel/review", "/v1/webull/cancel/confirm"):
+        if self.path not in WORKSPACE_ROUTES + ACCESS_ROUTES + MARKET_ROUTES + ALERT_ROUTES + ("/v1/kronos/status", "/v1/kronos/replay", "/v1/setup", "/v1/assistant", "/v1/research", "/v1/research/evaluation", "/v1/webull/state", "/v1/webull/executions", "/v1/webull/review", "/v1/webull/confirm", "/v1/webull/status", "/v1/webull/dismiss", "/v1/webull/cancel/review", "/v1/webull/cancel/confirm"):
             return self.reply(404, {"error": "Not found"})
         expected = os.environ.get("APP_ACCESS_TOKEN", "")
         authorization = self.headers.get_all("Authorization", [])
@@ -467,6 +468,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = load_evaluation()
             elif self.path in MARKET_ROUTES:
                 result = market_request(self.path, payload)
+            elif self.path in ALERT_ROUTES:
+                result = alerts_request(self.path, payload)
             elif self.path.startswith("/v1/kronos/"):
                 result = kronos_request(self.path, payload)
             elif self.path in ACCESS_ROUTES:
@@ -487,6 +490,8 @@ class Handler(BaseHTTPRequestHandler):
         except MarketDataError as error:
             return self.reply(503, {"error": str(error)})
         except MarketRequestError as error:
+            return self.reply(400, {"error": str(error)})
+        except AlertError as error:
             return self.reply(400, {"error": str(error)})
         except (BrokerError, AdmissionError) as error:
             return self.reply(409, {"error": str(error)})
@@ -529,9 +534,12 @@ if __name__ == "__main__":
         print("Private LAN unavailable. Running the paper scheduler with local TLS only.", flush=True)
     print("TradePilot private gateway started; Webull execution requires a separate approved review.", flush=True)
     stopped, worker = start_worker(automation())
+    alerts_stopped, alerts_worker = start_alert_worker(alerts, market_data)
     try:
         exit_code = serve_with_network_watch(service, address, args.interface)
     finally:
         stopped.set()
+        alerts_stopped.set()
         worker.join(timeout=40)
+        alerts_worker.join(timeout=15)
     raise SystemExit(exit_code)

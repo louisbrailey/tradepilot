@@ -18,6 +18,9 @@ struct SymbolDetailView: View {
     @State private var loading = false
     @State private var chartLoading = false
     @State private var showFullDescription = false
+    @State private var alerts: [PriceAlert] = []
+    @State private var alertsAvailable = true
+    @State private var composingAlert = false
 
     private var binding: BrokerConnectionBinding { .init(endpoint: store.aiEndpoint, token: store.aiToken) }
     private var current: SymbolPage? { pageBinding == binding ? page : nil }
@@ -29,6 +32,7 @@ struct SymbolDetailView: View {
             chartCard
             actions
             if let position { positionCard(position) }
+            if alertsAvailable && store.hasServerSettings { alertsCard }
             if let current {
                 statsCard(current)
                 if let dividend = current.dividend { dividendCard(dividend) }
@@ -40,7 +44,19 @@ struct SymbolDetailView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) { WatchButton(symbol: symbol) }
+            ToolbarItemGroup(placement: .primaryAction) {
+                if alertsAvailable && store.hasServerSettings {
+                    Button { composingAlert = true } label: { Image(systemName: "bell.badge") }
+                        .accessibilityLabel("Add price alert for \(symbol)")
+                }
+                WatchButton(symbol: symbol)
+            }
+        }
+        .sheet(isPresented: $composingAlert) {
+            AlertComposer(symbol: symbol, price: current?.quote?.price) { alert in
+                alerts.removeAll { $0.id == alert.id }
+                alerts.insert(alert, at: 0)
+            }
         }
         .task(id: PageKey(binding: binding, active: scenePhase == .active)) {
             guard scenePhase == .active else { return }
@@ -93,8 +109,8 @@ struct SymbolDetailView: View {
                     .font(.footnote.weight(.medium)).monospacedDigit()
                     .foregroundStyle(MarketFormat.tone(extended.change).color)
             }
-            if scrubbed == nil, let updated = quote?.updated {
-                Text(current?.status.state == "open" ? "Updated \(MarketFormat.time(updated))" : "As of \(MarketFormat.time(updated))")
+            if scrubbed == nil, let quote, let state = current?.status.state {
+                Text(Self.priceCaption(state: state, quote: quote))
                     .font(.caption).foregroundStyle(Theme.textTertiary)
             }
         }
@@ -148,6 +164,30 @@ struct SymbolDetailView: View {
     }
 
     // MARK: Cards
+
+    private var alertsCard: some View {
+        SectionCard(title: "Price alerts") {
+            if alerts.isEmpty {
+                Footnote("Get an alert in the app when \(symbol) reaches a price you choose.")
+            } else {
+                ForEach(alerts) { alert in
+                    AlertRow(alert: alert, showsSymbol: false, remove: { removeAlert(alert) })
+                }
+            }
+            Button { composingAlert = true } label: { Label("Add price alert", systemImage: "bell.badge") }
+                .buttonStyle(SecondaryButtonStyle())
+        }
+    }
+
+    private func removeAlert(_ alert: PriceAlert) {
+        let request = binding
+        Task {
+            do {
+                let updated = try await AlertsAPI.remove(alert.id, endpoint: request.endpoint, token: request.token)
+                if request == binding { alerts = updated.alerts.filter { $0.symbol == symbol } }
+            } catch { if request == binding { message = error.localizedDescription } }
+        }
+    }
 
     private func positionCard(_ position: PaperPosition) -> some View {
         SectionCard(title: "Your paper position") {
@@ -273,6 +313,13 @@ struct SymbolDetailView: View {
         if let snapshot = try? await paper, request == binding, snapshot.mode == "paper" {
             position = snapshot.positions.first { $0.symbol == symbol }
         }
+        do {
+            let snapshot = try await AlertsAPI.state(endpoint: request.endpoint, token: request.token)
+            if request == binding { alerts = snapshot.alerts.filter { $0.symbol == symbol }; alertsAvailable = true }
+        } catch {
+            // An older gateway has no alert routes; hide the feature rather than show an error.
+            if request == binding, (error as? WorkspaceError)?.message.contains("needs an update") == true { alertsAvailable = false }
+        }
     }
 
     private func loadChart() async {
@@ -291,6 +338,15 @@ struct SymbolDetailView: View {
     }
 
     // MARK: Helpers
+
+    /// The main price is the session's latest price while trading, and the official close afterwards.
+    static func priceCaption(state: String, quote: MarketQuote) -> String {
+        switch state {
+        case "open": return quote.updated.map { "Updated \(MarketFormat.time($0))" } ?? "Live session"
+        case "pre_market": return quote.updated.map { "Pre-market · updated \(MarketFormat.time($0))" } ?? "Pre-market"
+        default: return quote.change == nil ? "Last close" : "At close"
+        }
+    }
 
     private static var today: String {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = MarketFormat.eastern

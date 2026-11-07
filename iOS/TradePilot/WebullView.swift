@@ -352,8 +352,14 @@ struct WebullView: View {
                 VStack(spacing: 0) {
                     ForEach(snapshot.positions) { p in
                         if p.id != snapshot.positions.first?.id { Divider().overlay(Theme.separator) }
-                        HoldingRow(symbol: p.symbol, detail: "\(p.quantity) \(p.kind == "EQUITY" ? "shares" : "units") · avg \(gatewayMoney(p.cost, currency: p.currency))",
-                                   value: gatewayMoney(p.price, currency: p.currency), change: gatewayMoney(p.gain, currency: p.currency, signed: true), changeTone: deltaColorTone(p.gain))
+                        NavigationLink { SymbolDetailView(symbol: p.symbol) } label: {
+                            HoldingRow(symbol: p.symbol, detail: "\(p.quantity) \(p.kind == "EQUITY" ? "shares" : "units") · avg \(gatewayMoney(p.cost, currency: p.currency))",
+                                       value: gatewayMoney(p.price, currency: p.currency), change: gatewayMoney(p.gain, currency: p.currency, signed: true), changeTone: deltaColorTone(p.gain))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(RowButtonStyle())
+                        .disabled(p.kind != "EQUITY" || !WatchlistStore.valid(p.symbol))
+                        .accessibilityHint(p.kind == "EQUITY" ? "Opens the quote page" : "")
                     }
                 }
             }

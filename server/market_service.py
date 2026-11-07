@@ -359,6 +359,19 @@ class MarketService:
         points, _ = _regular_sessions(bars, 1)
         return [bar["c"] for bar in points] if len(points) >= 2 else None
 
+    def latest_prices(self, symbols):
+        """{symbol: (Decimal price, as_of)} for price alerts: after-hours trades count, cleared day bars don't."""
+        from decimal import Decimal
+        prices = {}
+        for ticker, row in self._snapshots([valid_symbol(item) for item in symbols]).items():
+            current = quote_from_snapshot(row)
+            if not current or current["change"] is None or not current["updated"]:
+                continue
+            extended = current.get("extended")
+            price, as_of = (extended["price"], extended["at"]) if extended else (current["price"], current["updated"])
+            prices[ticker] = (Decimal(str(price)), as_of)
+        return prices
+
     def reference_price(self, ticker):
         """Latest consolidated price in the current or just-finished session, for paper simulations.
 

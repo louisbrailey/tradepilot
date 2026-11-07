@@ -518,6 +518,16 @@ struct ConfirmationSheet<Rows: View>: View {
 
 // MARK: - Platform shims (shared views stay type-checkable on macOS; the target is iPhone)
 
+extension ToolbarItemPlacement {
+    static var topBarLeadingIfAvailable: ToolbarItemPlacement {
+        #if os(iOS)
+        .topBarLeading
+        #else
+        .navigation
+        #endif
+    }
+}
+
 extension View {
     @ViewBuilder func phoneNavigationTheme() -> some View {
         #if os(iOS)

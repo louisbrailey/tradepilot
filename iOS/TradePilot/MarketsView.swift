@@ -18,6 +18,7 @@ struct MarketsView: View {
     @State private var searching = false
     @State private var movers = MoverList.gainers
     @State private var editing = false
+    @State private var alerts: AlertsSnapshot?
 
     private var binding: BrokerConnectionBinding { .init(endpoint: store.aiEndpoint, token: store.aiToken) }
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -38,6 +39,13 @@ struct MarketsView: View {
             .searchable(text: $query, prompt: "Symbol or company")
             .navigationDestination(for: String.self) { SymbolDetailView(symbol: $0) }
             .toolbar {
+                ToolbarItem(placement: .topBarLeadingIfAvailable) {
+                    NavigationLink { AlertsListView() } label: {
+                        Image(systemName: (alerts?.triggered ?? 0) > 0 ? "bell.badge.fill" : "bell")
+                            .symbolRenderingMode((alerts?.triggered ?? 0) > 0 ? .multicolor : .monochrome)
+                    }
+                    .accessibilityLabel((alerts?.triggered ?? 0) > 0 ? "Price alerts, \(alerts?.triggered ?? 0) triggered" : "Price alerts")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Edit") { editing = true }.disabled(store.watchlist.symbols.isEmpty)
                 }
@@ -65,10 +73,38 @@ struct MarketsView: View {
             InlineNotice(kind: overview == nil ? .error : .warning,
                          message: overview == nil ? message : "\(message) Showing the last prices loaded.")
         }
+        triggeredAlerts
         indexGrid
         watchlistCard
         moversCard
         Footnote("Market data from Massive via your TradePilot server. Prices can be delayed and aren’t executable quotes. Index values are shown with their ETFs.")
+    }
+
+    @ViewBuilder private var triggeredAlerts: some View {
+        let triggered = (loadedBinding == binding ? alerts?.alerts : nil)?.filter(\.isTriggered) ?? []
+        if !triggered.isEmpty {
+            SectionCard {
+                HStack {
+                    Label("Price alerts", systemImage: "bell.badge.fill").font(.headline).foregroundStyle(Theme.warning)
+                    Spacer()
+                    NavigationLink("See all") { AlertsListView() }.font(.footnote.weight(.semibold))
+                }
+                ForEach(triggered.prefix(3)) { alert in
+                    NavigationLink(value: alert.symbol) {
+                        AlertRow(alert: alert, remove: { dismissAlert(alert) })
+                    }.buttonStyle(RowButtonStyle())
+                }
+            }
+        }
+    }
+
+    private func dismissAlert(_ alert: PriceAlert) {
+        let request = binding
+        Task {
+            if let updated = try? await AlertsAPI.remove(alert.id, endpoint: request.endpoint, token: request.token), request == binding {
+                alerts = updated
+            }
+        }
     }
 
     private var statusRow: some View {
@@ -218,6 +254,7 @@ struct MarketsView: View {
         let symbols = store.watchlist.symbols
         async let summary = MarketAPI.overview(endpoint: request.endpoint, token: request.token)
         async let watched = MarketAPI.quotes(symbols, sparklines: true, endpoint: request.endpoint, token: request.token)
+        async let alertState = AlertsAPI.state(endpoint: request.endpoint, token: request.token)
         var problems: [String] = []
         let loadedSummary: MarketOverview?
         do { loadedSummary = try await summary } catch { loadedSummary = nil; problems.append(error.localizedDescription) }
@@ -231,6 +268,7 @@ struct MarketsView: View {
             quotes = Dictionary(loadedQuotes.quotes.map { ($0.symbol, $0) }, uniquingKeysWith: { $1 })
             missing = Set(loadedQuotes.missing)
         }
+        if let latest = try? await alertState, request == binding { alerts = latest }
         if loadedSummary != nil || loadedQuotes != nil { refreshedAt = .now }
         message = Array(Set(problems)).sorted().first ?? ""
     }

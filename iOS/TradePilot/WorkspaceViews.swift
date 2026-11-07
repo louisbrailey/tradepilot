@@ -316,8 +316,14 @@ struct PaperTradingView: View {
                             ForEach(snapshot.positions) { p in
                                 if p.id != snapshot.positions.first?.id { Divider().overlay(Theme.separator) }
                                 let average = p.average_cost.map { " · avg \(workspaceMoney($0))" } ?? ""
-                                HoldingRow(symbol: p.symbol, detail: "\(p.quantity) shares\(average)",
-                                           value: workspaceMoney(p.market_value), change: workspaceMoney(p.unrealized_pnl, signed: true), changeTone: toneFor(p.unrealized_pnl))
+                                NavigationLink { SymbolDetailView(symbol: p.symbol) } label: {
+                                    HoldingRow(symbol: p.symbol, detail: "\(p.quantity) shares\(average)",
+                                               value: workspaceMoney(p.market_value), change: workspaceMoney(p.unrealized_pnl, signed: true), changeTone: toneFor(p.unrealized_pnl))
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(RowButtonStyle())
+                                .disabled(!WatchlistStore.valid(p.symbol))
+                                .accessibilityHint("Opens the quote page")
                             }
                         }
                     }

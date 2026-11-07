@@ -165,12 +165,12 @@ enum MarketAPI {
         return history
     }
 
-    private static func post<T: Decodable & Sendable, B: Encodable & Sendable>(_ path: String, _ body: B,
+    static func post<T: Decodable & Sendable, B: Encodable & Sendable>(_ path: String, _ body: B,
         endpoint: String, token: String) async throws -> T {
         guard token.count >= 32 else { throw WorkspaceError(message: "Connect to your server in Settings to see market data.") }
         let base = try ConnectionSettings.authorizedEndpoint(endpoint)
         var request = URLRequest(url: base.appendingPathComponent(path))
-        request.httpMethod = "POST"; request.timeoutInterval = 25
+        request.httpMethod = "POST"; request.timeoutInterval = 45
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
@@ -185,6 +185,58 @@ enum MarketAPI {
         }
         do { return try JSONDecoder().decode(T.self, from: data) }
         catch { throw WorkspaceError(message: "Your server sent market data this app couldn’t read.") }
+    }
+}
+
+// MARK: - Price alerts (recorded by the gateway; they never place orders)
+
+struct PriceAlert: Decodable, Sendable, Identifiable, Equatable {
+    let id: String
+    let symbol: String
+    let direction: String
+    let target: String
+    let created_at: Double
+    let status: String
+    let triggered_at: Double?
+    let triggered_price: String?
+    let price_as_of: Double?
+    var isActive: Bool { status == "active" }
+    var isTriggered: Bool { status == "triggered" }
+    var targetText: String { gatewayMoney(target) }
+    var condition: String { "\(direction == "above" ? "Above" : "Below") \(targetText)" }
+    var headline: String {
+        isTriggered ? "\(symbol) \(direction == "above" ? "rose above" : "fell below") \(targetText)" : "\(symbol) \(condition.lowercased())"
+    }
+}
+
+struct AlertsSnapshot: Decodable, Sendable {
+    let alerts: [PriceAlert]; let active: Int; let triggered: Int; let notice: String; let as_of: Double
+}
+
+private struct AlertCreateRequest: Encodable, Sendable {
+    let symbol: String; let direction: String; let target: String; let client_id: String
+}
+private struct AlertIDRequest: Encodable, Sendable { let id: String }
+
+enum AlertsAPI {
+    static func state(endpoint: String, token: String) async throws -> AlertsSnapshot {
+        try await MarketAPI.post("v1/alerts/state", EmptyWorkspaceRequest(), endpoint: endpoint, token: token)
+    }
+    static func create(symbol: String, direction: String, target: String, clientID: String,
+                       endpoint: String, token: String) async throws -> PriceAlert {
+        let alert: PriceAlert = try await MarketAPI.post("v1/alerts/create",
+            AlertCreateRequest(symbol: symbol, direction: direction, target: target, client_id: clientID), endpoint: endpoint, token: token)
+        guard alert.symbol == symbol, alert.direction == direction,
+              strictDecimal(alert.target) == strictDecimal(target) else {
+            throw WorkspaceError(message: "Your server saved a different alert than requested. Check your alerts.")
+        }
+        return alert
+    }
+    static func remove(_ id: String, endpoint: String, token: String) async throws -> AlertsSnapshot {
+        try await MarketAPI.post("v1/alerts/cancel", AlertIDRequest(id: id), endpoint: endpoint, token: token)
+    }
+    static func clearTriggered(endpoint: String, token: String) async throws -> AlertsSnapshot {
+        try await MarketAPI.post("v1/alerts/clear", EmptyWorkspaceRequest(), endpoint: endpoint, token: token)
     }
 }
 
@@ -304,9 +356,14 @@ enum MarketFormat {
         guard let epoch, epoch.isFinite, epoch > 0 else { return "—" }
         let date = Date(timeIntervalSince1970: epoch)
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = eastern
-        var style = calendar.isDate(date, inSameDayAs: now)
-            ? Date.FormatStyle(date: .omitted, time: .shortened)
-            : Date.FormatStyle(date: .abbreviated, time: .shortened)
+        var style: Date.FormatStyle
+        if calendar.isDate(date, inSameDayAs: now) {
+            style = Date.FormatStyle(date: .omitted, time: .shortened)
+        } else if abs(date.timeIntervalSince(now)) < 6 * 86400 {
+            style = Date.FormatStyle().weekday(.abbreviated).hour().minute()
+        } else {
+            style = Date.FormatStyle().month(.abbreviated).day().hour().minute()
+        }
         style.timeZone = eastern
         return date.formatted(style) + " ET"
     }
