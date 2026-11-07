@@ -13,6 +13,12 @@ The Markets tab is the app's market data workspace: session status, index ETFs, 
 
 Holdings in the paper account and stock positions in Webull open the same quote page.
 
+## Price alerts
+
+The bell on a quote page sets an alert above or below a price; the composer offers ±5% and ±10% steps from the last price. The gateway checks active alerts about once a minute during pre-market, regular and after-hours trading, and only prices observed after an alert was set can trigger it. Up to 50 alerts can be active. Alerts never create, review or place orders.
+
+The app posts a notification for each new trigger and shows the triggered count on its icon. Tapping the notification opens that symbol. Without a paid Apple Developer account there is no push service, so the app relies on iOS background refresh, which iOS schedules at its own discretion and only while the iPhone is unlocked, because the gateway token stays in unlocked-only Keychain storage. The app also checks whenever Markets or the alert list is open. Notification permission is requested after the first alert is created.
+
 ## Data and freshness
 
 All figures come from Massive (Polygon-compatible) through the private gateway; the app never contacts the provider directly and the provider key never leaves the gateway. Each quote carries the provider's timestamp. The day's change is measured from the previous close; the after-hours line comes from minute bars after the close. Intraday charts (1D, 1W, 1M) show regular trading hours only. The data plan's latency is not verified, so prices are described as possibly delayed and are never presented as executable quotes.
@@ -30,6 +36,10 @@ All routes are authenticated `POST` requests with exact JSON bodies, like the re
 | `/v1/market/search` | `{"query": "..."}` | Up to 15 ranked matches |
 | `/v1/market/symbol` | `{"symbol": "AAPL"}` | Quote, profile, statistics, dividend, headlines, and any datasets that were unavailable |
 | `/v1/market/chart` | `{"symbol": "AAPL", "range": "1D"}` | OHLCV bars and the baseline for the range's change |
+| `/v1/alerts/state` | `{}` | Triggered and active alerts, with counts |
+| `/v1/alerts/create` | `{"symbol", "direction": "above"\|"below", "target", "client_id"}` | The saved alert; the same `client_id` returns it again |
+| `/v1/alerts/cancel` | `{"id"}` | Removes an active alert or clears a triggered one |
+| `/v1/alerts/clear` | `{}` | Clears all triggered alerts |
 
 Invalid requests return HTTP 400 with a readable message; provider outages, rate limits and plan restrictions return HTTP 503. An older gateway without these routes returns 404, and the app asks for a server update.
 

@@ -185,7 +185,7 @@ struct SymbolDetailView: View {
     private var alertsCard: some View {
         SectionCard(title: "Price alerts") {
             if alerts.isEmpty {
-                Footnote("Get an alert in the app when \(symbol) reaches a price you choose.")
+                Footnote("Get a notification when \(symbol) reaches a price you choose. Alerts never place orders.")
             } else {
                 ForEach(alerts) { alert in
                     AlertRow(alert: alert, showsSymbol: false, remove: { removeAlert(alert) })
