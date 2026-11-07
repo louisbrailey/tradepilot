@@ -14,6 +14,8 @@
 - [x] Version 0.2.0 account screens, connection status and demo separation rebuilt, installed and checked on the physical iPhone. See reports/release-0.2.0-2026-11-05.md.
 
 - [x] Automated paper version 1: three frozen SPY protocols, independent simulated accounts, background scheduling, data/drawdown stops, durable evidence, phone controls and first forward observation verified November 5.
-- [ ] Observe the first future-session settlement and accumulate prospective strategy evidence; do not infer this from synthetic tests.
+- [x] Observe the first future-session settlement. All three runs recorded November 6, 2026. The mean reversion strategy settled its first simulated fill and the other two remained in cash.
+- [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy.
+- [ ] Stage and verify the gateway on the home PC, then move the active ledger and pair the iPhone. See [home PC setup](../HOME-PC.md).
 
 Follow-on product scope retained explicitly: Fidelity supported data access, live crypto/options/short execution, dividend/FX/intraday strategy implementations with appropriate data, broader/custom strategy automation, prospective evaluation, and remote always-on infrastructure. Do not mark these complete from exploratory research or a manual paper ledger.

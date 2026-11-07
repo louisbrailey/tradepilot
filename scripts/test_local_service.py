@@ -375,12 +375,10 @@ class LaunchPreflightTests(unittest.TestCase):
             args = private_inputs(Path(folder))
             with mock.patch.object(MODULE, "validate_tls_material") as validate, \
                  mock.patch.object(MODULE, "validate_cert_san") as san, \
-                 mock.patch.object(MODULE.os, "execv") as execute, \
-                 mock.patch.object(MODULE, "discover_interface_address") as discover:
+                 mock.patch.object(MODULE.os, "execv") as execute:
                 MODULE.serve(args)
             validate.assert_called_once()
             san.assert_called_once()
-            discover.assert_not_called()
             argv = execute.call_args.args[1]
             self.assertEqual(argv[argv.index("--bind") + 1], "192.168.1.20")
 
@@ -398,20 +396,18 @@ class LaunchPreflightTests(unittest.TestCase):
             with self.subTest(value=bad), self.assertRaises(SystemExit):
                 MODULE.validate_interface(bad)
 
-    def test_serve_timestamps_missing_interface_address(self):
+    def test_hostname_serve_delegates_address_discovery_to_gateway(self):
         with tempfile.TemporaryDirectory() as folder:
             args = private_inputs(Path(folder))
             args.address, args.hostname, args.interface = "", "gateway.local", "en0"
-            completed = subprocess.CompletedProcess(["ipconfig"], 1, "", "")
             with mock.patch.object(MODULE, "validate_tls_material"), \
                  mock.patch.object(MODULE, "validate_cert_san"), \
-                 mock.patch.object(MODULE.subprocess, "run", return_value=completed), \
                  mock.patch.object(MODULE.os, "execv") as execute:
-                with self.assertRaises(SystemExit) as raised:
-                    MODULE.serve(args)
-            execute.assert_not_called()
-            self.assertRegex(str(raised.exception),
-                             r"^error: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4} interface en0 has no IPv4 address")
+                MODULE.serve(args)
+            argv = execute.call_args.args[1]
+            self.assertNotIn("--bind", argv)
+            self.assertEqual(argv[argv.index("--interface") + 1], "en0")
+            self.assertIn("--tls-cert", argv)
 
     def test_iphone_installer_refuses_unsafe_pairing_file(self):
         with tempfile.TemporaryDirectory() as folder:

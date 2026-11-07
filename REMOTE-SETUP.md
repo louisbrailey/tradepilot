@@ -1,5 +1,7 @@
 # Always-on private gateway — prepared, not deployed
 
+The intended deployment is now the user's [home PC](HOME-PC.md). The Ubuntu installer and single-writer migration steps below also apply to its guest VM. The VPS section records the earlier hosting proposal.
+
 The Mac remains the active gateway. No cloud account/server has been created, no
 hosting charge incurred, and no credentials or ledgers transferred for this work.
 This plan includes the gateway, paper scheduler, AI and Kronos on one remote host.

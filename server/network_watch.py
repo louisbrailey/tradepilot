@@ -4,6 +4,8 @@ import math
 import re
 import subprocess
 
+_LAN_NETWORKS = tuple(ipaddress.IPv4Network(network) for network in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
+
 
 def _interface(value):
     if not isinstance(value, str) or not re.fullmatch(r'en[0-9]{1,2}', value):
@@ -18,10 +20,7 @@ def _private_ipv4(value):
         address = ipaddress.IPv4Address(value)
     except (ValueError, TypeError):
         return None
-    if (not address.is_private or address.is_loopback or address.is_link_local or
-            address.is_multicast or address.is_unspecified or address.is_reserved):
-        return None
-    return str(address)
+    return str(address) if any(address in network for network in _LAN_NETWORKS) else None
 
 
 def interface_address(interface):
@@ -43,11 +42,12 @@ def watch_interface(interface, initial_address, stop_event, on_change, interval=
     Run from a separate thread. The caller can pass HTTPServer.shutdown as the
     callback, then close/join active request workers and let launchd restart.
     This module neither kills processes nor changes a running server's socket.
+    An initial address of None means the caller is waiting for the LAN to return.
     getter and wait are dependency injection seams for deterministic tests.
     """
     interface = _interface(interface)
     address = _private_ipv4(initial_address)
-    if address is None:
+    if initial_address is not None and address is None:
         raise ValueError('Initial bind address must be a private IPv4 address')
     if isinstance(interval, bool) or not isinstance(interval, (int, float)) or not math.isfinite(interval) or interval <= 0:
         raise ValueError('Poll interval must be positive and finite')

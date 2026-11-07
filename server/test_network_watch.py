@@ -6,6 +6,14 @@ from network_watch import interface_address, watch_interface
 
 
 class NetworkWatchTests(unittest.TestCase):
+    def test_loopback_waits_for_usable_lan_to_return(self):
+        getter = Mock(side_effect=[None, '192.0.0.2', '192.168.1.20'])
+        changed = Mock()
+        self.assertTrue(watch_interface('en0', None, threading.Event(), changed,
+                                        getter=getter, wait=lambda _: False))
+        self.assertEqual(getter.call_count, 3)
+        changed.assert_called_once_with()
+
     def test_same_then_changed_calls_once_and_returns(self):
         getter = Mock(side_effect=['192.168.1.20', '192.168.1.21'])
         changed, wait = Mock(), Mock(return_value=False)
@@ -60,7 +68,7 @@ class NetworkWatchTests(unittest.TestCase):
         self.assertEqual(interface_address('en0'), '192.168.1.20')
         run.assert_called_once_with(['/usr/sbin/ipconfig', 'getifaddr', 'en0'],
                                     capture_output=True, text=True, timeout=10, check=False)
-        for output in ('bad', '169.254.1.2', '255.255.255.255'):
+        for output in ('bad', '169.254.1.2', '192.0.0.2', '255.255.255.255'):
             run.return_value = Mock(returncode=0, stdout=output)
             self.assertIsNone(interface_address('en0'))
         run.return_value = Mock(returncode=1, stdout='192.168.1.20')

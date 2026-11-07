@@ -22,7 +22,7 @@ from evaluation import load_evaluation
 from workspace_service import workspace_request, WORKSPACE_ROUTES, automation
 from paper_automation import start_worker
 from inference_guard import local_inference_lock
-from network_watch import watch_interface
+from network_watch import interface_address, watch_interface
 from kronos_service import request as kronos_request, KronosError
 
 _broker = None
@@ -389,7 +389,8 @@ def serve_with_network_watch(service, address, interface=None, watcher=watch_int
     if interface:
         if not re.fullmatch(r"en[0-9]{1,2}", interface):
             raise ValueError("Invalid network interface")
-        worker = threading.Thread(target=watcher, args=(interface, address, stopped, restart), daemon=True)
+        lan_address = None if address == "::1" else address
+        worker = threading.Thread(target=watcher, args=(interface, lan_address, stopped, restart), daemon=True)
         worker.start()
     try:
         service.serve_forever()
@@ -494,11 +495,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--market-env", help="Existing .env containing MASSIVE_API_KEY or POLYGON_API_KEY")
     parser.add_argument("--config", help="Private JSON configuration outside the source folder (chmod 600)")
-    parser.add_argument("--bind", default="127.0.0.1", help="Interface address; non-loopback requires TLS")
-    parser.add_argument("--interface", help="Monitor a macOS LAN interface and restart gracefully on address change")
+    parser.add_argument("--bind", help="Interface address; non-loopback requires TLS")
+    parser.add_argument("--interface", help="Watch a macOS LAN interface and use TLS on loopback while it is unavailable")
     parser.add_argument("--tls-cert", help="TLS certificate PEM")
     parser.add_argument("--tls-key", help="TLS private key PEM")
     args = parser.parse_args()
+    if args.interface and not re.fullmatch(r"en[0-9]{1,2}", args.interface):
+        parser.error("Invalid macOS network interface")
     if args.config:
         load_private_config(args.config)
     require_gateway_enabled()
@@ -509,15 +512,18 @@ if __name__ == "__main__":
     if not ai_configuration()[2]:
         print("AI disabled: configure the selected AI_PROVIDER (OpenAI credentials or OLLAMA_MODEL). Market research remains available.")
     os.umask(0o077)
-    if args.bind not in ("127.0.0.1", "::1") and not (args.tls_cert and args.tls_key):
-        raise SystemExit("Non-loopback access requires TLS.")
-    service = GatewayHTTPServer((args.bind, 8787), Handler)
+    address = args.bind or ((interface_address(args.interface) or "::1") if args.interface else "127.0.0.1")
+    if (args.interface or address not in ("127.0.0.1", "::1")) and not (args.tls_cert and args.tls_key):
+        raise SystemExit("Interface monitoring and non-loopback access require TLS.")
+    service = GatewayHTTPServer((address, 8787), Handler)
     if args.tls_cert and args.tls_key:
         enable_tls(service, args.tls_cert, args.tls_key)
-    print("TradePilot private gateway started; Webull execution requires a separate approved review.")
+    if args.interface and address == "::1":
+        print("Private LAN unavailable. Running the paper scheduler with local TLS only.", flush=True)
+    print("TradePilot private gateway started; Webull execution requires a separate approved review.", flush=True)
     stopped, worker = start_worker(automation())
     try:
-        exit_code = serve_with_network_watch(service, args.bind, args.interface)
+        exit_code = serve_with_network_watch(service, address, args.interface)
     finally:
         stopped.set()
         worker.join(timeout=40)

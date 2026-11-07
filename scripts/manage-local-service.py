@@ -215,29 +215,19 @@ def print_sanitized(plist: dict, destination: Path) -> None:
     print("keepalive: restart after failure, throttled to one start per 30 seconds")
 
 
-def discover_interface_address(interface: str) -> str:
-    try:
-        result = subprocess.run(["/usr/sbin/ipconfig", "getifaddr", interface], check=False,
-                                capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        fail(f"could not inspect interface {interface}")
-    if result.returncode:
-        fail(f"interface {interface} has no IPv4 address (Mac not on the paired LAN?); launchd will retry")
-    return validate_address(result.stdout.strip())
-
-
 def serve(args: argparse.Namespace) -> None:
     global _TIMESTAMP_ERRORS
     _TIMESTAMP_ERRORS = True
     values = validate_inputs(args)
-    # Hostname mode validates the DNS SAN and discovers only the bind address.
-    address = str(values["address"]) or discover_interface_address(str(values["interface"]))
+    # Hostname mode validates the DNS SAN. The gateway discovers and watches the LAN address.
     server = Path(__file__).resolve().parent.parent / "server" / "server.py"
     arguments = [str(values["python"]), str(server), "--config", str(values["config"]),
-                 "--market-env", str(values["market_env"]), "--bind", address,
+                 "--market-env", str(values["market_env"]),
                  "--tls-cert", str(values["cert"]), "--tls-key", str(values["key"])]
     if values["hostname"]:
         arguments += ["--interface", str(values["interface"])]
+    else:
+        arguments += ["--bind", str(values["address"])]
     os.execv(str(values["python"]), arguments)
 
 
