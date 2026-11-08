@@ -195,11 +195,19 @@ def verify(root: Path, attempts: int = 30) -> None:
                 last = type(error).__name__
                 continue
             if status == 200:
-                print(f"Gateway healthy at {host} (pinned certificate for {name}).")
+                failures = []
                 for path in ("/v1/alerts/state", "/v1/market/overview"):
-                    code, payload = post(host, 8787, name, cert, token, path, timeout=60)
-                    detail = "ok" if code == 200 else payload.get("error", f"HTTP {code}")
+                    try:
+                        code, _ = post(host, 8787, name, cert, token, path, timeout=60)
+                        detail = "ok" if code == 200 else f"HTTP {code}"
+                    except (OSError, ssl.SSLError, http.client.HTTPException) as error:
+                        detail = type(error).__name__
+                    if detail != "ok":
+                        failures.append(f"{path}: {detail}")
                     print(f"  {path}: {detail}")
+                if failures:
+                    fail("gateway capability checks failed (" + "; ".join(failures) + ")")
+                print(f"Gateway healthy at {host} (pinned certificate for {name}).")
                 return
             last = f"HTTP {status}"
         time.sleep(2)

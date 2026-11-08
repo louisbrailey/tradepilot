@@ -1,3 +1,7 @@
+# November 8, 2026 — current gateway verified
+
+The active Mac gateway passed 16 live pinned-TLS checks, including market data, options, crypto prices, authentication rejection, paper/scheduler state, actual local assistant inference and a five-session Kronos replay. All three paper runs remain running for November 9. The updater now fails if required alerts or Markets checks fail, instead of reporting a healthy gateway from setup alone; 70 script tests passed. The Mac currently serves loopback while on its CLAT/hotspot link; the earlier physical home-LAN check remains separate evidence. Windows migration is still in progress in its owning chat. See [verification evidence](reports/gateway-verification-2026-11-08.md).
+
 # November 8, 2026 — physical connection and strategy display (0.5.2)
 
 The USB phone now connects successfully. Its old paired `.local` name had resolved to the USB link instead of the Wi-Fi listener after the Mac's hostname changed. A deliberate pairing refresh retained the access token and exact configuration bytes; previous TLS/pairing material was backed up. Pinned setup, alerts and Markets checks passed, and before/after snapshots retained all three paper runs unchanged. The first launchd reload failed and rolled back cleanly; unloading fully before the retry succeeded.

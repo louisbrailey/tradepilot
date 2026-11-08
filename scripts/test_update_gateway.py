@@ -43,6 +43,27 @@ class GatewayUpdateTests(unittest.TestCase):
         self.assertEqual(changed, ["server/server.py"])
         self.assertEqual(added, ["server/market_service.py"])
 
+    def test_verification_fails_when_a_required_capability_is_unavailable(self):
+        for failure in ((503, {"error": "provider unavailable"}), OSError("connection lost")):
+            with self.subTest(failure=failure), \
+                    mock.patch.object(MODULE, "launch_arguments", return_value=[]), \
+                    mock.patch.object(MODULE, "endpoints", return_value=[("::1", "mac.local")]), \
+                    mock.patch.object(MODULE, "private_config", return_value={"APP_ACCESS_TOKEN": "x" * 32}), \
+                    mock.patch.object(MODULE, "post", side_effect=[(200, {}), (200, {}), failure]):
+                (self.root / "private/server.pem").write_text("fixture")
+                with self.assertRaisesRegex(SystemExit, "capability checks failed"):
+                    MODULE.verify(self.root, attempts=1)
+
+    def test_verification_requires_all_three_routes_to_succeed(self):
+        (self.root / "private/server.pem").write_text("fixture")
+        with mock.patch.object(MODULE, "launch_arguments", return_value=[]), \
+                mock.patch.object(MODULE, "endpoints", return_value=[("::1", "mac.local")]), \
+                mock.patch.object(MODULE, "private_config", return_value={"APP_ACCESS_TOKEN": "x" * 32}), \
+                mock.patch.object(MODULE, "post", return_value=(200, {})) as post:
+            MODULE.verify(self.root, attempts=1)
+        self.assertEqual([call.args[5] for call in post.call_args_list],
+                         ["/v1/setup", "/v1/alerts/state", "/v1/market/overview"])
+
     def test_apply_backs_up_installs_restarts_and_verifies(self):
         restart, check = mock.Mock(), mock.Mock()
         with mock.patch.object(MODULE.subprocess, "run", return_value=mock.Mock(stdout="abc123\n")):
