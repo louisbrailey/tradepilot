@@ -26,7 +26,7 @@
 - [x] Review and finish the read-only options chain (0.5.1): expiration binding, pagination, distinct adjusted series, contract terms, missing activity and simulator checks. Signed build 7 is installed on the USB phone.
 - [x] Deploy and verify the 0.5.1 options review fixes on the Mac gateway (November 8, 10:41 PT; pinned health and options checks passed; paper state preserved).
 - [x] Fresh physical launch and live options verified November 8: calls/puts, contract terms/premium/timestamp and expiration changes.
-- [ ] Finish the 0.5.2 strategy-display visual check after the Mac is unlocked (signed build 8 is installed and launched).
+- [x] Version 0.5.2 strategy display verified on the physical phone November 8: readable currency/percentages and preserved run details; signed build 8 is installed and launched.
 - [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy.
 - [ ] Stage and verify the gateway on the home PC, then move the active ledger and pair the iPhone. See [home PC setup](../HOME-PC.md).
 
