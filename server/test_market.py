@@ -506,6 +506,13 @@ class OptionsTests(unittest.TestCase):
                 result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL", "expiration": "2026-11-13"})
                 self.assertEqual(result["strikes"], [])
 
+    def test_zero_ask_does_not_become_a_free_contract_premium(self):
+        for bid in (0, 1):
+            contract = market.option_quote(option_row("call", 340, bid=bid, ask=0))
+            self.assertEqual((contract["bid"], contract["ask"]), (None, None))
+        quoted = market.option_quote(option_row("call", 340, bid=0, ask=1))
+        self.assertEqual((quoted["bid"], quoted["ask"]), (0, 1))
+
 
 class CacheAndClientTests(unittest.TestCase):
     def test_cache_expires_and_evicts(self):

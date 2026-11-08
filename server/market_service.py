@@ -307,7 +307,7 @@ def option_quote(row, reference=None):
     additional = reference.get("additional_underlyings", [])
     standard = (shares == 100 and not additional) if reference and shares is not None and isinstance(additional, list) else None
     bid, ask = _number(quote.get("bid")), _number(quote.get("ask"))
-    if bid is not None and bid < 0 or ask is not None and ask < 0 or (bid is not None and ask is not None and ask < bid):
+    if (bid is not None and bid < 0) or (ask is not None and ask <= 0) or (bid is not None and ask is not None and ask < bid):
         bid = ask = None
     iv = _number(row.get("implied_volatility"), True)
     volume, interest = _number(day.get("volume")), _number(row.get("open_interest"))
