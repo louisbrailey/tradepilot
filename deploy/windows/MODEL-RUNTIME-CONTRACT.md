@@ -16,7 +16,7 @@ The complete disabled installer owns provisioning. Review `Install-Candidate.ps1
 
 ## Installation and output
 
-The installer first verifies the complete bundle and actual PSF-signed machine Python 3.14.10, then creates and protects `C:/Program Files/TradePilot`. It invokes the helper with `--archive`, `--receipt` and the fresh destination `C:/Program Files/TradePilot/model-python`. Existing deployments are refused and retained, so do not provision this root independently before running the complete installer.
+The deployment owner runs a verified installer copy from Administrator-only staging with a protected ALLOW receipt. The installer validates one manifest byte buffer and retains it for the installed receipt. It checks the machine Python signature, creates and protects `C:/Program Files/TradePilot`, copies and verifies every payload file and protects their ownership. Only then does it execute the installed version probe to require gateway Python 3.14.10/64. It invokes the installed extraction helper with `--archive`, `--receipt` and the fresh destination `C:/Program Files/TradePilot/model-python`. Existing deployments are refused and retained, so do not provision this root independently before running the complete installer.
 
 The helper checks every tar path, rejects links and duplicate case-insensitive names, and accepts only ordinary files/directories under the archive's `python` root. It omits regenerable `.pyc`/`__pycache__` content. The extracted `python.exe` must have SHA-256 `246221b571e7a692a8b26818b628cac4c163e836de9897812eaebc2a8e1efa90`.
 

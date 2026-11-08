@@ -1,4 +1,4 @@
-# Review-only; owner executes after ALLOW for this exact complete bundle.
+# Review-only; owner executes a verified copy from Admin-only staging after ALLOW.
 param([Parameter(Mandatory=$true)][string]$Bundle,
       [string]$Python='C:\Program Files\Python314\python.exe',
       [Parameter(Mandatory=$true)][string]$GatekeeperAllow)
@@ -38,8 +38,12 @@ function PrivateDirectory([string]$Path,[string]$Account,[bool]$ReadOnly=$false)
 NoReparse $Bundle;NoReparse $Python;NoReparse $install;NoReparse $state
 $approval=Get-Content -LiteralPath $GatekeeperAllow -Raw | ConvertFrom-Json
 $manifestPath=Join-Path $Bundle 'manifest.json'
-if($approval.decision -ne 'ALLOW' -or $approval.manifest_sha256 -ne (Get-FileHash -LiteralPath $manifestPath).Hash){throw 'ALLOW must bind this exact bundle manifest'}
-$manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$manifestBytes=[IO.File]::ReadAllBytes($manifestPath)
+$manifestHasher=[Security.Cryptography.SHA256]::Create()
+try{$manifestHash=([BitConverter]::ToString($manifestHasher.ComputeHash($manifestBytes))).Replace('-','').ToLowerInvariant()}
+finally{$manifestHasher.Dispose()}
+if($approval.decision -ne 'ALLOW' -or $approval.manifest_sha256 -ne $manifestHash){throw 'ALLOW must bind this exact bundle manifest'}
+$manifest=[Text.Encoding]::UTF8.GetString($manifestBytes) | ConvertFrom-Json
 if($manifest.version -ne 2){throw 'Complete bundle version2 required'}
 $bundleRoot=(Resolve-Path -LiteralPath $Bundle).Path.TrimEnd('\')+'\'
 $seen=@{}
@@ -55,8 +59,6 @@ if(-not ([IO.Path]::GetFullPath($Python)).StartsWith('C:\Program Files\',[String
 $signature=Get-AuthenticodeSignature $Python
 if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'CN=Python Software Foundation(?:,|$)'){throw 'Expected PSF-signed gateway Python'}
 $env:PYTHONDONTWRITEBYTECODE='1';$env:PYTHONNOUSERSITE='1'
-$version=& $Python -I -B (Join-Path $bundleRoot 'source\deploy\windows\runtime_identity.py')
-if($LASTEXITCODE -or $version -ne '3.14.10/64'){throw 'Gateway Python3.14.10 x86_64 required'}
 New-Item -ItemType Directory -Path $install | Out-Null
 ProtectedTree $install
 foreach($entry in $manifest.files){
@@ -65,8 +67,12 @@ foreach($entry in $manifest.files){
  Copy-Item -LiteralPath (Join-Path $bundleRoot $entry.path) -Destination $target
  if((Get-FileHash -LiteralPath $target).Hash -ne $entry.sha256){throw 'Copied file mismatch'}
 }
-Copy-Item -LiteralPath $manifestPath -Destination "$install\bundle-manifest.json"
+$installedManifestPath=Join-Path $install 'bundle-manifest.json'
+[IO.File]::WriteAllBytes($installedManifestPath,$manifestBytes)
+if((Get-FileHash -LiteralPath $installedManifestPath).Hash -ne $manifestHash){throw 'Installed manifest checksum mismatch'}
 ProtectedTree $install
+$version=& $Python -I -B "$install\source\deploy\windows\runtime_identity.py"
+if($LASTEXITCODE -or $version -ne '3.14.10/64'){throw 'Gateway Python3.14.10 x86_64 required'}
 & $Python -I -B "$install\source\deploy\windows\runtime_provenance.py" --archive "$install\runtime\model-python.tar.gz" --receipt "$install\runtime\model-provenance.json" --destination "$install\model-python"
 if($LASTEXITCODE){throw 'Exact attested runtime extraction failed'}
 ProtectedTree "$install\model-python"
