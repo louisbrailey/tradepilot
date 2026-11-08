@@ -32,6 +32,12 @@ struct SymbolDetailView: View {
             if !message.isEmpty { InlineNotice(kind: current == nil ? .error : .warning, message: message) }
             chartCard
             actions
+            SectionCard {
+                NavigationLink { OptionsChainView(symbol: symbol) } label: {
+                    NavigationRow(title: "Options chain", detail: "Calls and puts by expiration · research only", icon: "list.bullet.rectangle")
+                }
+                .buttonStyle(RowButtonStyle())
+            }
             if let position { positionCard(position) }
             if alertsAvailable && store.hasServerSettings { alertsCard }
             if let current {

@@ -11,6 +11,8 @@ The Markets tab is the app's market data workspace: session status, index ETFs, 
 - **Search**: by ticker or company name. Exact ticker matches rank first, then common stock and ETFs; warrants, rights and units rank last. The star adds or removes a result from the watchlist.
 - **Quote page**: price and change for the selected range, the after-hours price when one exists, an interactive chart (press and hold, then drag to read any point) for 1D, 1W, 1M, 3M, 6M, YTD, 1Y and 5Y, key statistics (open, previous close, day range, volume, average volume, market cap, P/E, EPS, dividend yield, bid/ask, VWAP), day and 52-week range bars, the paper position in that symbol, the latest or upcoming dividend, a company profile and recent headlines with the provider's sentiment for that ticker. Headlines open in Safari.
 
+Each quote page links to a read-only **options chain**: upcoming expirations, calls or puts by strike around the last price (or every strike), in-the-money rows tinted, and a contract sheet with bid, ask, mid, last, volume, open interest, break-even, implied volatility and Greeks. TradePilot cannot trade options; the chain is research only.
+
 Holdings in the paper account and stock positions in Webull open the same quote page. Coinbase balances are valued in USD from the same provider's crypto prices, with an estimated total and each asset's 24-hour change; assets without a price stay in units.
 
 ## Price alerts
@@ -37,6 +39,7 @@ All routes are authenticated `POST` requests with exact JSON bodies, like the re
 | `/v1/market/symbol` | `{"symbol": "AAPL"}` | Quote, profile, statistics, dividend, headlines, and any datasets that were unavailable |
 | `/v1/market/chart` | `{"symbol": "AAPL", "range": "1D"}` | OHLCV bars and the baseline for the range's change |
 | `/v1/market/crypto` | `{"currencies": ["BTC", ...]}` | USD prices for up to 60 currencies (USD at par) and those without a price |
+| `/v1/market/options` | `{"symbol", "expiration"?}` | Upcoming expirations and one expiration's calls and puts by strike, with bid, ask, last, volume, open interest, implied volatility and Greeks |
 | `/v1/alerts/state` | `{}` | Triggered and active alerts, with counts |
 | `/v1/alerts/create` | `{"symbol", "direction": "above"\|"below", "target", "client_id"}` | The saved alert; the same `client_id` returns it again |
 | `/v1/alerts/cancel` | `{"id"}` | Removes an active alert or clears a triggered one |

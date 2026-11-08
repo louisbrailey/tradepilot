@@ -22,6 +22,7 @@
 		A00000000000000000000057 /* SymbolDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000056; };
 		A00000000000000000000059 /* AlertsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000058; };
 		A00000000000000000000061 /* AlertNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000060; };
+		A00000000000000000000064 /* OptionsChainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000063; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +41,7 @@
 		A00000000000000000000056 /* SymbolDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/SymbolDetailView.swift; sourceTree = "<group>"; };
 		A00000000000000000000058 /* AlertsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/AlertsViews.swift; sourceTree = "<group>"; };
 		A00000000000000000000060 /* AlertNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/AlertNotifications.swift; sourceTree = "<group>"; };
+		A00000000000000000000063 /* OptionsChainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradePilot/OptionsChainView.swift; sourceTree = "<group>"; };
 		A00000000000000000000062 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = TradePilot/Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -72,6 +74,7 @@
 				A00000000000000000000056 /* SymbolDetailView.swift */,
 				A00000000000000000000058 /* AlertsViews.swift */,
 				A00000000000000000000060 /* AlertNotifications.swift */,
+				A00000000000000000000063 /* OptionsChainView.swift */,
 				A00000000000000000000062 /* Info.plist */,
 				A00000000000000000000004 /* Products */,
 			);
@@ -172,6 +175,7 @@
 				A00000000000000000000057 /* SymbolDetailView.swift in Sources */,
 				A00000000000000000000059 /* AlertsViews.swift in Sources */,
 				A00000000000000000000061 /* AlertNotifications.swift in Sources */,
+				A00000000000000000000064 /* OptionsChainView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

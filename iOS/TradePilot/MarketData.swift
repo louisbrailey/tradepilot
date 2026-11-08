@@ -188,6 +188,42 @@ enum MarketAPI {
     }
 }
 
+// MARK: - Option chains (read-only research; TradePilot cannot trade options)
+
+struct OptionContract: Decodable, Sendable, Identifiable {
+    var id: String { contract }
+    let contract: String; let type: String; let strike: Double
+    let bid: Double?; let ask: Double?; let last: Double?; let change_percent: Double?
+    let volume: Double; let open_interest: Double; let implied_volatility: Double?
+    let delta: Double?; let gamma: Double?; let theta: Double?; let vega: Double?
+    let break_even: Double?; let updated: Double?
+    var mid: Double? { bid.flatMap { b in ask.map { (b + $0) / 2 } } }
+}
+
+struct OptionStrike: Decodable, Sendable, Identifiable {
+    var id: Double { strike }
+    let strike: Double; let call: OptionContract?; let put: OptionContract?
+}
+
+struct OptionChain: Decodable, Sendable {
+    let symbol: String; let expirations: [String]; let expiration: String?
+    let underlying: Double?; let strikes: [OptionStrike]; let as_of: Double
+}
+
+private struct OptionsRequest: Encodable, Sendable { let symbol: String; let expiration: String? }
+
+extension MarketAPI {
+    static func options(_ symbol: String, expiration: String?, endpoint: String, token: String) async throws -> OptionChain {
+        let chain: OptionChain = try await post("v1/market/options", OptionsRequest(symbol: symbol, expiration: expiration),
+                                                endpoint: endpoint, token: token, timeout: 60)
+        guard chain.symbol == symbol, chain.expiration.map({ chain.expirations.contains($0) }) ?? chain.strikes.isEmpty,
+              zip(chain.strikes, chain.strikes.dropFirst()).allSatisfy({ $0.strike < $1.strike }) else {
+            throw WorkspaceError(message: "Your server returned an unusable option chain.")
+        }
+        return chain
+    }
+}
+
 // MARK: - Crypto prices for Coinbase balances
 
 struct CryptoPrice: Decodable, Sendable { let currency: String; let price: Double; let change_percent: Double?; let updated: Double? }
@@ -341,6 +377,12 @@ enum MarketFormat {
         guard let value, value.isFinite else { return "—" }
         let digits = abs(value) < 1 ? 4 : 2
         return value.formatted(.currency(code: "USD").precision(.fractionLength(digits)))
+    }
+
+    /// Option premiums are quoted in cents.
+    static func premium(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "—" }
+        return value.formatted(.currency(code: "USD").precision(.fractionLength(2)))
     }
 
     static func change(_ value: Double?) -> String {

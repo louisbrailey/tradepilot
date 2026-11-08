@@ -22,6 +22,7 @@ struct TradePilotApp: App {
         else if screen == "coinbase" { NavigationStack { CoinbaseView() } }
         else if screen == "markets" { MarketsView() }
         else if screen == "alerts" { NavigationStack { AlertsListView() } }
+        else if screen == "options" { NavigationStack { OptionsChainView(symbol: ProcessInfo.processInfo.environment["TRADEPILOT_SYMBOL"] ?? "AAPL") } }
         else if screen == "alert" { AlertComposer(symbol: ProcessInfo.processInfo.environment["TRADEPILOT_SYMBOL"] ?? "AAPL", price: 342.37) { _ in } }
         else if screen == "symbol" { NavigationStack { SymbolDetailView(symbol: ProcessInfo.processInfo.environment["TRADEPILOT_SYMBOL"] ?? "AAPL") } }
         else { RootView() }

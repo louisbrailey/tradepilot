@@ -15,16 +15,18 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 from urllib.request import Request, build_opener
 
 from paper_calendar import ET, next_session, session as is_session
 from research import NoRedirects
 
 MARKET_ROUTES = ("/v1/market/overview", "/v1/market/quotes", "/v1/market/search",
-                 "/v1/market/symbol", "/v1/market/chart", "/v1/market/crypto")
+                 "/v1/market/symbol", "/v1/market/chart", "/v1/market/crypto", "/v1/market/options")
 SYMBOL = re.compile(r"[A-Z][A-Z0-9.\-]{0,14}")
 CURRENCY = re.compile(r"[A-Z0-9]{2,10}")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+MAX_OPTION_PAGES = 4
 MAX_CURRENCIES = 60
 QUERY = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .&'\-]{0,39}")
 RANGES = ("1D", "1W", "1M", "3M", "6M", "YTD", "1Y", "5Y")
@@ -271,6 +273,32 @@ def _any_epoch(value):
         if stamp:
             return stamp
     return None
+
+
+def option_quote(row):
+    """One option contract from a chain snapshot, or None when its identity is unusable."""
+    row = _dict(row)
+    details, quote, trade = _dict(row.get("details")), _dict(row.get("last_quote")), _dict(row.get("last_trade"))
+    greeks, day = _dict(row.get("greeks")), _dict(row.get("day"))
+    kind, strike = details.get("contract_type"), _number(details.get("strike_price"), True)
+    ticker = details.get("ticker")
+    if kind not in ("call", "put") or strike is None or not isinstance(ticker, str) or not re.fullmatch(r"O:[A-Z0-9.]{1,40}", ticker):
+        return None
+    bid, ask = _number(quote.get("bid")), _number(quote.get("ask"))
+    if bid is not None and bid < 0 or ask is not None and ask < 0 or (bid is not None and ask is not None and ask < bid):
+        bid = ask = None
+    iv = _number(row.get("implied_volatility"), True)
+    stamps = [stamp for stamp in (_any_epoch(quote.get("last_updated")), _any_epoch(trade.get("sip_timestamp")),
+                                  _any_epoch(day.get("last_updated"))) if stamp]
+    return {
+        "contract": ticker, "type": kind, "strike": _round(strike), "bid": _round(bid), "ask": _round(ask),
+        "last": _round(_number(trade.get("price"), True)), "change_percent": _round(_number(day.get("change_percent"))),
+        "volume": _number(day.get("volume")) or 0, "open_interest": _number(row.get("open_interest")) or 0,
+        "implied_volatility": _round(iv * 100, 2) if iv is not None and iv < 50 else None,
+        "delta": _round(_number(greeks.get("delta")), 4), "gamma": _round(_number(greeks.get("gamma")), 4),
+        "theta": _round(_number(greeks.get("theta")), 4), "vega": _round(_number(greeks.get("vega")), 4),
+        "break_even": _round(_number(row.get("break_even_price"), True)), "updated": max(stamps) if stamps else None,
+    }
 
 
 def crypto_quote(row):
@@ -654,6 +682,51 @@ class MarketService:
                 missing.append(currency)
         return {"prices": prices, "missing": missing, "source": "Massive", "as_of": self.clock()}
 
+    def _paged(self, path, params, fresh_for, pages=MAX_OPTION_PAGES):
+        """Results across the provider's cursor pages, following only links back to the provider itself."""
+        rows, body = [], self._get(path, params, fresh_for, 600)
+        for _ in range(pages):
+            rows.extend(item for item in _dict(body).get("results") or [] if isinstance(item, dict))
+            link = _dict(body).get("next_url")
+            if not isinstance(link, str):
+                break
+            parts = urlsplit(link)
+            if parts.scheme != "https" or parts.netloc != urlsplit(MassiveClient.base).netloc:
+                break
+            query = dict(pair.split("=", 1) for pair in parts.query.split("&") if "=" in pair)
+            body = self._get(parts.path, {key: unquote(value) for key, value in query.items()}, fresh_for, 600)
+        return rows
+
+    def options(self, payload):
+        """Read-only option chain for one expiration: calls and puts paired by strike, with the underlying price."""
+        _exact(payload, ("symbol",), ("expiration",))
+        ticker = valid_symbol(payload["symbol"])
+        wanted = payload.get("expiration")
+        if wanted is not None and (not isinstance(wanted, str) or not ISO_DATE.fullmatch(wanted)):
+            raise MarketRequestError("Choose an expiration date such as 2026-11-20.")
+        today = self._today().isoformat()
+        contracts = self._paged("/v3/reference/options/contracts", {"underlying_ticker": ticker, "expired": "false",
+                                "expiration_date.gte": today, "limit": 1000, "sort": "expiration_date", "order": "asc"}, 3600, pages=2)
+        expirations = sorted({row["expiration_date"] for row in contracts
+                              if isinstance(row.get("expiration_date"), str) and ISO_DATE.fullmatch(row["expiration_date"])})
+        if not expirations:
+            return {"symbol": ticker, "expirations": [], "expiration": None, "underlying": None, "strikes": [],
+                    "source": "Massive", "as_of": self.clock()}
+        expiration = wanted if wanted in expirations else expirations[0]
+        rows = self._paged(f"/v3/snapshot/options/{quote(ticker, safe='')}", {"expiration_date": expiration, "limit": 250,
+                           "sort": "strike_price", "order": "asc"}, 30)
+        by_strike, underlying = {}, None
+        for row in rows:
+            contract = option_quote(row)
+            if contract and _dict(row.get("details")).get("expiration_date") == expiration:
+                by_strike.setdefault(contract["strike"], {})[contract["type"]] = contract
+            asset = _dict(row.get("underlying_asset"))
+            if asset.get("ticker") == ticker:
+                underlying = _number(asset.get("price"), True) or underlying
+        strikes = [{"strike": strike, "call": pair.get("call"), "put": pair.get("put")} for strike, pair in sorted(by_strike.items())]
+        return {"symbol": ticker, "expirations": expirations[:24], "expiration": expiration,
+                "underlying": _round(underlying), "strikes": strikes, "source": "Massive", "as_of": self.clock()}
+
     def chart(self, payload):
         _exact(payload, ("symbol", "range"))
         ticker, span = valid_symbol(payload["symbol"]), payload["range"]
@@ -710,4 +783,6 @@ def market_request(path, payload):
         return current.chart(payload)
     if path == "/v1/market/crypto":
         return current.crypto(payload)
+    if path == "/v1/market/options":
+        return current.options(payload)
     raise MarketRequestError("Unknown market route.")

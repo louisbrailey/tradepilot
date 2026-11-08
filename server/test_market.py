@@ -372,6 +372,68 @@ class CryptoTests(unittest.TestCase):
                 MarketService(provider).crypto(payload)
 
 
+def option_row(kind, strike, expiration="2026-11-13", bid=1.0, ask=1.2, underlying=342.79):
+    code = f"O:AAPL261113{'C' if kind == 'call' else 'P'}{int(strike * 1000):08d}"
+    return {"details": {"contract_type": kind, "strike_price": strike, "expiration_date": expiration, "ticker": code},
+            "last_quote": {"bid": bid, "ask": ask, "last_updated": int(FRIDAY_2PM * 1e9)},
+            "last_trade": {"price": (bid + ask) / 2, "sip_timestamp": int((FRIDAY_2PM - 5) * 1e9)},
+            "greeks": {"delta": 0.5 if kind == "call" else -0.5, "gamma": 0.05, "theta": -0.6, "vega": 0.1},
+            "implied_volatility": 0.2855, "open_interest": 1734, "day": {"volume": 4756, "change_percent": 1.5},
+            "break_even_price": strike + 1.1, "underlying_asset": {"ticker": "AAPL", "price": underlying}}
+
+
+class OptionsTests(unittest.TestCase):
+    def provider(self, chain_pages):
+        contracts = {"results": [{"expiration_date": day} for day in ("2026-11-13", "2026-11-09", "2026-11-13", "2026-11-20", "bad")]}
+        routes = {"/v3/reference/options/contracts": contracts}
+        pages = iter(chain_pages)
+        routes["/v3/snapshot/options/AAPL"] = lambda path, params: next(pages)
+        return FakeProvider(routes)
+
+    def test_chain_pairs_calls_and_puts_by_strike_for_the_nearest_expiration(self):
+        provider = self.provider([{"results": [option_row("call", 340, "2026-11-09"), option_row("put", 340, "2026-11-09"),
+                                               option_row("call", 345, "2026-11-09"), option_row("call", 350, "2026-11-13")]}])
+        result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL"})
+        self.assertEqual(result["expirations"], ["2026-11-09", "2026-11-13", "2026-11-20"])
+        self.assertEqual(result["expiration"], "2026-11-09")
+        self.assertEqual(result["underlying"], 342.79)
+        self.assertEqual([row["strike"] for row in result["strikes"]], [340, 345])
+        self.assertIsNone(result["strikes"][1]["put"])
+        call = result["strikes"][0]["call"]
+        self.assertEqual((call["bid"], call["ask"], call["implied_volatility"], call["open_interest"]), (1.0, 1.2, 28.55, 1734))
+        self.assertEqual(provider.calls[-1][1]["expiration_date"], "2026-11-09")
+
+    def test_explicit_expiration_and_bad_dates(self):
+        provider = self.provider([{"results": [option_row("put", 345, "2026-11-20")]}])
+        result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL", "expiration": "2026-11-20"})
+        self.assertEqual((result["expiration"], len(result["strikes"])), ("2026-11-20", 1))
+        for payload in ({"symbol": "AAPL", "expiration": "Nov 20"}, {"symbol": "AAPL", "expiration": 5},
+                        {"symbol": "aapl"}, {"symbol": "AAPL", "extra": 1}):
+            with self.subTest(payload=payload), self.assertRaises(MarketRequestError):
+                MarketService(FakeProvider({})).options(payload)
+
+    def test_pages_follow_only_provider_links(self):
+        provider = self.provider([
+            {"results": [option_row("call", 340, "2026-11-09")],
+             "next_url": "https://api.massive.com/v3/snapshot/options/AAPL?cursor=abc%3D%3D"},
+            {"results": [option_row("call", 345, "2026-11-09")], "next_url": "https://evil.example/steal?cursor=x"},
+            {"results": [option_row("call", 999, "2026-11-09")]}])
+        result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL"})
+        self.assertEqual([row["strike"] for row in result["strikes"]], [340, 345])
+        self.assertEqual(provider.calls[-1][1], {"cursor": "abc=="})
+
+    def test_unusable_contracts_are_dropped_and_crossed_quotes_cleared(self):
+        self.assertIsNone(market.option_quote({"details": {"contract_type": "swap", "strike_price": 1, "ticker": "O:X"}}))
+        self.assertIsNone(market.option_quote({"details": {"contract_type": "call", "strike_price": -1, "ticker": "O:X"}}))
+        crossed = market.option_quote(option_row("call", 340, bid=2.0, ask=1.0))
+        self.assertEqual((crossed["bid"], crossed["ask"]), (None, None))
+
+    def test_symbol_without_options_returns_an_empty_chain(self):
+        provider = FakeProvider({"/v3/reference/options/contracts": {"results": []}})
+        result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "BRK.A"})
+        self.assertEqual((result["expirations"], result["strikes"], result["expiration"]), ([], [], None))
+
+
 class CacheAndClientTests(unittest.TestCase):
     def test_cache_expires_and_evicts(self):
         now = [0.0]
@@ -460,7 +522,7 @@ class GatewayRouteTests(unittest.TestCase):
                 self.assertEqual(market.market_request(path, {}), path.rsplit("/", 1)[1])
             with self.assertRaises(MarketRequestError):
                 market.market_request("/v1/market/other", {})
-        self.assertEqual(calls, ["overview", "quotes", "search", "symbol", "chart", "crypto"])
+        self.assertEqual(calls, ["overview", "quotes", "search", "symbol", "chart", "crypto", "options"])
 
 
 if __name__ == "__main__":
