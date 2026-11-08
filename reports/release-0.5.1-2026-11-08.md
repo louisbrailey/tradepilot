@@ -22,6 +22,8 @@ The read-only options chain is included with corrections found while reviewing t
 
 ## Deployment and remaining checks
 
-Gateway deployment and a fresh physical-phone launch/data check remain pending at this checkpoint. The Mac remains the sole paper-ledger writer. The home-PC migration requires a reachable, authorized Windows administration route; no cloud server or ledger cutover was performed.
+The gateway update from `90cae8d` was deployed November 8 at 10:41 PT with the approved code-only updater. Backup: `private/code-backup-update-20261108-104125`. Pinned TLS setup, alerts and Markets checks passed. The deployed options route returned HTTP 200 with 94 AAPL contracts carrying the new terms, and returned HTTP 400 for invalid and unavailable expiration dates. Before/after snapshots confirm the same three running paper IDs, balances, observation/fill counts and November 9 next sessions, with live trading disabled. Deployment log: `.toolkit-runs/20261108T184125.038429Z.log`; private checks: `deployed-options-smoke.json`, `before-deployment.json`, `after-deployment.json` under `.toolkit-runs/options-review-20261108/`.
+
+A fresh physical-phone launch/data check remains pending: the owner was asked to open TradePilot on the USB phone after iOS continued to report it locked. The Mac remains the sole paper-ledger writer. The home-PC migration requires a reachable, authorized Windows administration route; no cloud server or ledger cutover was performed. Development signing still expires November 11 at 00:35 PT; automatic renewal requires an Apple ID signed into Xcode.
 
 Provider field references: [option-chain snapshot](https://massive.com/docs/rest/options/snapshots/option-chain-snapshot), [contract reference](https://massive.com/docs/rest/options/contracts/contract-overview). Share count alone does not establish additional deliverables; the implementation requires matching contract-reference data before estimating a standard premium.
