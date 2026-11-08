@@ -159,6 +159,20 @@ class NetworkStatusTests(unittest.TestCase):
             reader=next(row for row in rows if row[2]==fake_gateway)
             self.assertEqual(reader[1] & net.WRITE_RIGHTS,0)
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows file SDK')
+    def test_real_atomic_publication_and_bounded_read_in_owned_scratch(self):
+        with tempfile.TemporaryDirectory(prefix='tradepilot-net-publish-') as temp:
+            root=Path(temp)
+            # Ordinary-user scratch cannot have SYSTEM ownership. Trust and
+            # explicit receipt ACLs are tested separately; retain real Windows
+            # file creation, write, flush, replace and pinned-reader operations.
+            with patch.object(net, 'ROOT', root), patch.object(net, 'STATUS', root/'status.json'), patch.object(net, 'validate_acl'), patch.object(net, 'receipt_security', return_value=None), patch.object(net, 'clock', return_value=STAMP):
+                net.publish(net.record_status(RAW,STAMP))
+                self.assertTrue(net.read_status()['Self']['Online'])
+                net.publish(net.record_status(None,STAMP))
+                with self.assertRaises(ValueError): net.read_status()
+                self.assertEqual({p.name for p in root.iterdir()},{'status.json'})
+
     @unittest.skipUnless(os.name == 'nt', 'SCM module imports only')
     def test_service_host_import_has_no_gateway_or_private_modules(self):
         folder = str(Path(__file__).parent.resolve())

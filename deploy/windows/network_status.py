@@ -79,12 +79,14 @@ def managed_handle(handle):
 def open_checked(path, *, directory=False):
     import win32con as con, win32file
     # This module has fixed production paths. Ancestor reparse checks plus a
-    # no-delete/no-write-share handle pin each checked directory while used.
+    # no-delete-share handle pin each checked directory while used. Directories
+    # allow write sharing for child creation/rename; their ACL excludes untrusted
+    # writers. Receipt/executable files additionally deny write sharing.
     for ancestor in (path, *path.parents):
         if ancestor.lstat().st_file_attributes & 0x400:
             raise ValueError('Network status reparse path rejected')
     handle = win32file.CreateFile(str(path), con.GENERIC_READ | con.READ_CONTROL,
-        con.FILE_SHARE_READ, None, con.OPEN_EXISTING,
+        con.FILE_SHARE_READ | (con.FILE_SHARE_WRITE if directory else 0), None, con.OPEN_EXISTING,
         0x00200000 | (con.FILE_FLAG_BACKUP_SEMANTICS if directory else 0), None)
     try:
         check_handle(handle, directory=directory)
