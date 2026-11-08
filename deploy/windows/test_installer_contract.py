@@ -1,6 +1,6 @@
-"""Exercise the installer's manifest statements against mutable scratch input.
+"""Exercise installer manifest and path checks against owned scratch input.
 
-Only the manifest read/validate/write blocks run. No installer, elevation, ACL,
+Only manifest blocks and NoReparse run. No installer, elevation, ACL,
 SCM, executable payload or production directory is invoked.
 """
 import hashlib
@@ -87,6 +87,50 @@ class InstallerManifestTests(unittest.TestCase):
         result, _, _ = self.exercise(corrupt_destination=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Installed manifest checksum mismatch', result.stderr)
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows PowerShell contract')
+class InstallerHiddenPathTests(unittest.TestCase):
+    def exercise(self, junction=False):
+        source = Path(__file__).with_name('Install-Candidate.ps1').read_text()
+        function = source[source.index('function NoReparse('):source.index('function ProtectedTree(')]
+        with tempfile.TemporaryDirectory(prefix='tradepilot-hidden-path-') as temporary:
+            root = Path(temporary)
+            hidden = root / 'hidden ordinary ancestor'
+            hidden.mkdir()
+            target = root / 'owned junction target'
+            target.mkdir()
+            command = (
+                "$ErrorActionPreference='Stop';\n"
+                "if($PSVersionTable.PSVersion.Major -ne 5){throw 'Windows PowerShell 5 required'}\n"
+                f'$hidden={quote(hidden)};\n'
+                '$item=Get-Item -LiteralPath $hidden -Force;\n'
+                '$item.Attributes=$item.Attributes -bor [IO.FileAttributes]::Hidden;\n'
+                "if(-not ((Get-Item -LiteralPath $hidden -Force).Attributes -band [IO.FileAttributes]::Hidden)){throw 'Hidden fixture required'}\n"
+                + function + '\n'
+            )
+            if junction:
+                link = hidden / 'owned junction'
+                command += (
+                    f'New-Item -ItemType Junction -Path {quote(link)} -Target {quote(target)} | Out-Null;\n'
+                    f'NoReparse {quote(link / "uncreated child")}\n'
+                )
+            else:
+                command += f'NoReparse $hidden; NoReparse {quote(hidden / "uncreated child")}\n'
+            shell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+            environment = os.environ.copy()
+            environment.pop('PSModulePath', None)
+            return subprocess.run([str(shell), '-NoProfile', '-NonInteractive', '-Command', command],
+                                  capture_output=True, text=True, timeout=15, env=environment)
+
+    def test_hidden_ordinary_directory_and_ancestor_are_accepted(self):
+        result = self.exercise()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_junction_under_hidden_ancestor_remains_rejected(self):
+        result = self.exercise(junction=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Reparse ancestor rejected', result.stderr)
 
 
 if __name__ == '__main__':
