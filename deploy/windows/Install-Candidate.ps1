@@ -12,7 +12,7 @@ if(Get-Service TradePilot,TradePilotOllama -ErrorAction SilentlyContinue){throw 
 function NoReparse([string]$Path){
  $p=[IO.Path]::GetFullPath($Path)
  if($p.StartsWith('\\') -or $p.Substring(2).Contains(':')){throw 'Expected local ordinary path'}
- while($p){if((Test-Path -LiteralPath $p) -and ((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Reparse ancestor rejected'}; $p=Split-Path $p -Parent}
+ while($p){if((Test-Path -LiteralPath $p) -and ((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Reparse ancestor rejected'}; $p=Split-Path $p -Parent}
 }
 function ProtectedTree([string]$Path){
  NoReparse $Path
