@@ -1,11 +1,13 @@
 """Cross-application single-writer admission. Never expire uncertain holds."""
 import os
+from private_storage import ensure_private_directory
 from contextlib import contextmanager
 import sqlite3
 import uuid
 from pathlib import Path
 
-DEFAULT_PATH = Path.home() / 'Library/Application Support/BrokerAccess/admission.sqlite3'
+DEFAULT_PATH = (Path(r'C:/ProgramData/TradePilot/private/runtime/admission.sqlite3') if os.name == 'nt'
+                else Path.home() / 'Library/Application Support/BrokerAccess/admission.sqlite3')
 
 
 class AdmissionError(Exception):
@@ -14,13 +16,17 @@ class AdmissionError(Exception):
 
 class AdmissionLedger:
     def __init__(self, path=None):
-        self.path = Path(path) if path is not None else DEFAULT_PATH
-        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.path = Path(path) if path is not None else (Path(os.environ["TRADEPILOT_RUNTIME"]) / "admission.sqlite3" if os.name == "nt" and "TRADEPILOT_RUNTIME" in os.environ else DEFAULT_PATH)
+        ensure_private_directory(self.path.parent)
         with self.connect() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS broker_admission (
                 provider TEXT, environment TEXT, account_id TEXT, action_id TEXT,
                 owner TEXT, state TEXT, PRIMARY KEY(provider,environment,account_id))''')
-        os.chmod(self.path, 0o600)
+        if os.name == "nt":
+            from windows_runtime import private_path
+            private_path(self.path)
+        else:
+            os.chmod(self.path, 0o600)
 
     @contextmanager
     def connect(self):

@@ -8,6 +8,7 @@ can trigger it. Triggered alerts stay listed until the user clears them.
 """
 from contextlib import contextmanager
 import os
+from private_storage import ensure_private_directory, runtime_path
 import re
 import sqlite3
 import threading
@@ -186,11 +187,10 @@ _lock = threading.Lock()
 
 
 def alerts():
-    runtime = Path(os.environ.get("TRADEPILOT_RUNTIME", "runtime")).resolve()
+    runtime = runtime_path(os.environ.get("TRADEPILOT_RUNTIME", "runtime"))
     with _lock:
         if runtime not in _services:
-            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-            os.chmod(runtime, 0o700)
+            ensure_private_directory(runtime)
             _services[runtime] = AlertService(runtime / "alerts.sqlite3")
         return _services[runtime]
 

@@ -6,6 +6,7 @@ proxy for iPhone access. This is a single-user prototype, not a production serve
 import hmac
 import json
 import os
+from private_storage import ensure_private_directory, runtime_path
 import re
 import socket
 import time
@@ -33,9 +34,12 @@ _local_ai_lock = local_inference_lock
 
 
 def load_private_config(path):
-    allowed = {"GATEWAY_DISABLED", "LOCAL_AI_KEEP_ALIVE", "KRONOS_HOME", "KRONOS_PYTHON", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "OLLAMA_LOOPBACK_HOST", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY", "COINBASE_IPV4_ONLY", "COINBASE_LIVE_TRADING", "COINBASE_TRANSFERS", "BROKER_KILL_SWITCH"}
+    allowed = {"GATEWAY_DISABLED", "LOCAL_AI_KEEP_ALIVE", "KRONOS_HOME", "KRONOS_PYTHON", "HF_HOME", "HF_HUB_CACHE", "WEBULL_APP_KEY", "WEBULL_APP_SECRET", "WEBULL_ENV", "WEBULL_LIVE_TRADING", "APP_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL", "AI_PROVIDER", "OLLAMA_MODEL", "OLLAMA_LOOPBACK_HOST", "TRADEPILOT_RUNTIME", "COINBASE_API_KEY_NAME", "COINBASE_API_PRIVATE_KEY", "COINBASE_IPV4_ONLY", "COINBASE_LIVE_TRADING", "COINBASE_TRANSFERS", "BROKER_KILL_SWITCH"}
     config = Path(path)
-    if config.stat().st_mode & 0o077:
+    if os.name == "nt":
+        from windows_runtime import private_path
+        private_path(config)
+    elif config.stat().st_mode & 0o077:
         raise ValueError("Private config must have permissions 600")
     values = json.loads(config.read_text())
     if not isinstance(values, dict) or set(values) - allowed or any(not isinstance(v, str) for v in values.values()):
@@ -47,9 +51,8 @@ def broker():
     global _broker
     with _broker_lock:
         if _broker is None:
-            runtime = Path(os.environ.get("TRADEPILOT_RUNTIME", "runtime")).resolve()
-            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-            os.chmod(runtime, 0o700)
+            runtime = runtime_path(os.environ.get("TRADEPILOT_RUNTIME", "runtime"))
+            ensure_private_directory(runtime)
             _broker = WebullService(runtime / "orders.sqlite3", WebullAdapter(runtime))
     return _broker
 
@@ -233,13 +236,20 @@ def local_ollama_request(path, body, timeout):
     # Never inherit HTTP_PROXY/OLLAMA_HOST or follow a redirect with portfolio
     # context. The private gateway connects to this Mac's daemon only.
     opener = build_opener(ProxyHandler({}), NoLocalRedirects())
-    with opener.open(request, timeout=timeout) as response:
-        if response.status != 200:
-            raise RuntimeError("Local model request failed")
-        raw = response.read(1_048_577)
-    if len(raw) > 1_048_576:
-        raise RuntimeError("Local model response was too large")
-    result = json.loads(raw)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            if response.status != 200:
+                raise RuntimeError("Local model request failed")
+            raw = response.read(1_048_577)
+        if len(raw) > 1_048_576:
+            raise RuntimeError("Local model response was too large")
+        result = json.loads(raw)
+        if os.name == "nt" and path == "/api/chat" and (not isinstance(result, dict) or result.get("done") is not True):
+            _local_ai_lock.poison()
+    except Exception:
+        if os.name == "nt" and path == "/api/chat":
+            _local_ai_lock.poison()
+        raise
     if not isinstance(result, dict) or "error" in result:
         raise RuntimeError("Local model request failed")
     return result
@@ -519,6 +529,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if os.name == "nt":
+        raise SystemExit("Use the fenced Windows SCM adapter; direct Windows worker startup is disabled.")
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--market-env", help="Existing .env containing MASSIVE_API_KEY or POLYGON_API_KEY")

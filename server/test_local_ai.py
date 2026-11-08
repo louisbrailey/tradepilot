@@ -42,6 +42,9 @@ class LocalAITests(unittest.TestCase):
 
     def test_private_config_accepts_provider_selection_but_not_remote_endpoints(self):
         with tempfile.TemporaryDirectory() as directory:
+            if server.os.name == "nt":
+                from windows_runtime import create_scratch_root
+                directory = create_scratch_root(Path(directory) / "private")
             config = Path(directory) / "config.json"
             config.write_text(json.dumps({"AI_PROVIDER": "ollama", "OLLAMA_MODEL": self.MODEL}))
             config.chmod(0o600)

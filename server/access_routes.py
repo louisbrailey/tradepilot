@@ -1,5 +1,6 @@
 """Authenticated gateway dispatch for concrete broker capabilities."""
 import os
+from private_storage import ensure_private_directory, runtime_path
 import threading
 from pathlib import Path
 from broker_actions import BrokerActions
@@ -17,9 +18,8 @@ def service():
     global _service
     with _lock:
         if _service is None:
-            runtime = Path(os.environ.get('TRADEPILOT_RUNTIME', 'runtime')).resolve()
-            runtime.mkdir(parents=True, exist_ok=True, mode=0o700)
-            os.chmod(runtime, 0o700)
+            runtime = runtime_path(os.environ.get('TRADEPILOT_RUNTIME', 'runtime'))
+            ensure_private_directory(runtime)
             _service = BrokerActions(runtime / 'broker-actions.sqlite3', CoinbaseAccess(
                 os.environ.get('COINBASE_API_KEY_NAME'), os.environ.get('COINBASE_API_PRIVATE_KEY')))
         return _service

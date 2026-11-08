@@ -18,12 +18,18 @@ STATE = Path('/var/lib/tradepilot')
 
 
 def private_file(path):
+    if os.name == "nt":
+        from windows_runtime import private_path
+        return private_path(path)
     if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077:
         raise ValueError('Expected ordinary owner-only file: ' + path.name)
     return path
 
 
 def private_directory(path):
+    if os.name == "nt":
+        from windows_runtime import private_path
+        return private_path(path, directory=True)
     if path.is_symlink() or not path.is_dir() or path.stat().st_mode & 0o077:
         raise ValueError('Expected ordinary owner-only directory: ' + path.name)
     return path
