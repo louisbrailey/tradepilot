@@ -133,11 +133,12 @@ def run(root, install, stopped, job):
         if sys.version_info[:3]!=(3,14,10): raise ValueError('Expected gateway Python3.14.10')
         report['bundle_manifest_sha256']=hashlib.sha256(admin_control_file(install/'bundle-manifest.json').read_bytes()).hexdigest()
         report['stage']='tailscale-access'
-        state=tailscale_status(Path(r'C:/Program Files/Tailscale/tailscale.exe'))
+        state=tailscale_status()
         me=state.get('Self',{})
-        if state.get('BackendState')!='Running' or me.get('Online') is not True or data['tailscale_address'] not in me.get('TailscaleIPs',[]):
+        if state.get('BackendState')!='Running' or me.get('Online') is not True or data['tailscale_address'] not in me.get('TailscaleIPs',[]) or not me.get('DNSName'):
             raise ValueError('Service identity lacks matching online Tailscale access')
         report['tailscale_access']=True
+        report['network_status_source']='restricted-system-publisher'
         report['stage']='dedicated-ollama-identity'
         report['ollama_service']=ollama_service_listener(); ollama_idle()
         opener=build_opener(ProxyHandler({}),server.NoLocalRedirects())

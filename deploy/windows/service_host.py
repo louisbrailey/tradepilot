@@ -1,4 +1,4 @@
-"""SCM hosts. Registration is explicit; both services install DISABLED."""
+"""SCM hosts. Registration is explicit; all services install DISABLED."""
 import os
 from pathlib import Path
 import subprocess
@@ -12,7 +12,7 @@ import win32service
 import win32serviceutil
 import servicemanager
 
-import gateway
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'server'))
 from windows_runtime import kill_job, private_path
 
 ROOT = Path(r'C:\ProgramData\TradePilot')
@@ -30,7 +30,9 @@ class BaseHost(win32serviceutil.ServiceFramework):
         self.stop.set()
 
     def SvcDoRun(self):
-        job = kill_job((5 if self._svc_name_ == 'TradePilotOllama' else 3) * 1024**3)
+        budget = {'TradePilot': 3 * 1024**3, 'TradePilotOllama': 5 * 1024**3,
+                  'TradePilotNetworkStatus': 256 * 1024**2}[self._svc_name_]
+        job = kill_job(budget)
         win32job.AssignProcessToJobObject(job, win32api.GetCurrentProcess())
         self.job = job
         errors = []
@@ -74,7 +76,22 @@ class GatewayService(BaseHost):
             import service_preflight
             service_preflight.run(ROOT, INSTALL, self.stop, self.job)
         else:
-            gateway.run(ROOT, self.stop, Path(r'C:\Program Files\Tailscale\tailscale.exe'))
+            import gateway
+            gateway.run(ROOT, self.stop)
+
+
+class NetworkStatusService(BaseHost):
+    _svc_name_ = 'TradePilotNetworkStatus'
+    _svc_display_name_ = 'TradePilot network status publisher'
+    _svc_description_ = 'Fixed nonsecret Tailscale status only; no gateway or broker state.'
+
+    def run_work(self):
+        os.environ.clear()
+        os.environ.update(SystemRoot=r'C:\Windows', WINDIR=r'C:\Windows',
+                          PATH=r'C:\Windows\System32', PYTHONDONTWRITEBYTECODE='1',
+                          PYTHONNOUSERSITE='1')
+        import network_status
+        network_status.run(self.stop)
 
 
 class OllamaService(BaseHost):
@@ -117,6 +134,7 @@ class OllamaService(BaseHost):
 
 if __name__ == '__main__':
     role = sys.argv.pop(1) if len(sys.argv) > 1 else ''
-    if role not in ('gateway', 'ollama'):
-        raise SystemExit('Choose gateway or ollama; no implicit startup')
-    win32serviceutil.HandleCommandLine(GatewayService if role == 'gateway' else OllamaService)
+    roles = {'gateway': GatewayService, 'ollama': OllamaService, 'network-status': NetworkStatusService}
+    if role not in roles:
+        raise SystemExit('Choose an explicit service role; no implicit startup')
+    win32serviceutil.HandleCommandLine(roles[role])

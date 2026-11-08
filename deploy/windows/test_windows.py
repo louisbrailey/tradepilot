@@ -197,7 +197,7 @@ class WindowsTests(unittest.TestCase):
     def test_missing_cutover_prevents_all_startup(self):
         with patch.object(gateway, 'remote_module') as remote:
             with self.assertRaises(ValueError):
-                gateway.run(self.root, threading.Event(), Path('unused'))
+                gateway.run(self.root, threading.Event())
             remote.assert_not_called()
 
     def test_preflight_refuses_activation_and_user_owned_request(self):
@@ -293,8 +293,8 @@ class WindowsTests(unittest.TestCase):
              patch.object(server, 'start_alert_worker', side_effect=alerts):
             if poisoned:
                 with self.assertRaisesRegex(RuntimeError,'supervised restart'):
-                    gateway.run(self.root, stopped, Path('unused'))
-            else: gateway.run(self.root, stopped, Path('unused'))
+                    gateway.run(self.root, stopped)
+            else: gateway.run(self.root, stopped)
         self.assertTrue(worker_stop.is_set())
         self.assertTrue(alert_stop.is_set())
         http.shutdown.assert_called_once()

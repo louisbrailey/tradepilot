@@ -28,10 +28,9 @@ def activation(root):
         raise ValueError('Windows activation requires reviewed fenced cutover')
 
 
-def tailscale_status(executable):
-    result = subprocess.run([str(executable), 'status', '--json'], capture_output=True,
-                            text=True, check=True, timeout=10)
-    return json.loads(result.stdout)
+def tailscale_status():
+    from network_status import read_status
+    return read_status()
 
 
 def ollama_idle():
@@ -51,7 +50,7 @@ def ollama_idle():
         raise ValueError('Ollama must be idle and unloaded before gateway startup')
 
 
-def run(root, stopped, tailscale):
+def run(root, stopped):
     """No production entry via CLI; called only by the separately installed SCM host."""
     root = private_path(Path(root), directory=True)
     activation(root)
@@ -60,7 +59,7 @@ def run(root, stopped, tailscale):
         # Retry unavailable Tailscale before constructing any worker/listener.
         while not stopped.is_set():
             try:
-                status = tailscale_status(tailscale)
+                status = tailscale_status()
                 remote.command(root, status)
                 break
             except (ValueError, subprocess.SubprocessError):
@@ -97,7 +96,7 @@ def run(root, stopped, tailscale):
                     raise RuntimeError('Inference transport requires supervised restart')
                 activation(root)
                 # Preserve fail-closed identity/config validation during operation.
-                remote.command(root, tailscale_status(tailscale))
+                remote.command(root, tailscale_status())
         finally:
             for event, _ in workers: event.set()
             deadline = time.monotonic() + 55
