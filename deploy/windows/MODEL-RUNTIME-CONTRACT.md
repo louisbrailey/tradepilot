@@ -38,4 +38,6 @@ The same service preflight verifies the protected installed receipt, every recor
 
 ## Reviewed execution boundary
 
+The Ollama cache includes the public v2 tag `manifests-v2/ollama.com/library/qwen3.5/4b`, pinned to SHA-256 `492e37dc69072c5a189a0cf21d32d844c983d599e4553a1e4d2ebd3f6b1299e2`, together with the legacy tag and reviewed blobs. Ollama 0.40.15 selects its GGUF/llamacpp child `d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04`. The legacy tag alone reports a different identity in a fresh cache. Packaging rejects a missing or changed mapping; service preflight retains the exact selected-child digest check. Validation must use a fresh copy of packaged cache files, without a pull or existing user-cache metadata.
+
 This path requires the deployment owner's independent approval for the exact full bundle. It creates no broker credentials, real ledgers, pairing, activation permit or running scheduler. The Mac remains the active writer until the separately owned cutover.

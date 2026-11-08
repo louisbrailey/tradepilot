@@ -25,6 +25,24 @@ def sha(p):
     with p.open('rb') as f: return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
+def reviewed_ollama_mapping(models, refs, expected_model):
+    """Bind the v2 name to the reviewed public list and selected GGUF child."""
+    relative = Path('manifests-v2/ollama.com/library/qwen3.5/4b')
+    expected_list = '492e37dc69072c5a189a0cf21d32d844c983d599e4553a1e4d2ebd3f6b1299e2'
+    data = (models / relative).read_bytes()
+    if hashlib.sha256(data).hexdigest() != expected_list:
+        raise ValueError('Unexpected 4B v2 mapping')
+    raw = json.loads(data)
+    if not any(row.get('digest') == 'sha256:' + expected_list and
+               row.get('mediaType') == 'application/vnd.ollama.manifest.list.v2+json' for row in refs):
+        raise ValueError('4B v2 list missing from reviewed blobs')
+    if not any(row.get('digest') == 'sha256:' + expected_model and
+               row.get('runner') == 'llamacpp' and row.get('format') == 'gguf'
+               for row in raw['manifests']):
+        raise ValueError('4B v2 selected child differs')
+    return relative, expected_list
+
+
 def reviewed_wheels(directory, lock, minor, build_receipt=None):
     """Require exactly one reviewed wheel per pin for CPython/Windows x86_64."""
     normalize = lambda name: re.sub(r'[-_.]+', '-', name).lower()
@@ -193,6 +211,8 @@ def package(source, wheels, ollama, output, kronos_source, kronos_wheels, runtim
     expected_model='d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04'
     refs=[raw['config'],*raw['layers']]
     if not any(x['digest']=='sha256:'+expected_model for x in refs): raise ValueError('Unexpected 4B digest')
+    mapping, mapping_hash = reviewed_ollama_mapping(models, refs, expected_model)
+    copy_public(models/mapping,Path('public-models/ollama')/mapping,mapping_hash)
     copy_public(models/relative,Path('public-models/ollama')/relative)
     for row in refs:
         digest=row['digest']
