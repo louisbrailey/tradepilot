@@ -11,6 +11,11 @@ from pathlib import Path
 from research import Massive, validated_daily_bars
 from inference_guard import local_inference_lock
 
+if os.name == "nt":
+    from windows_runtime import run_model as model_run
+else:
+    model_run = subprocess.run
+
 _LOCK = local_inference_lock
 LOOKBACK = 128
 MODEL = 'NeoQuasar/Kronos-small'
@@ -24,8 +29,8 @@ class KronosError(Exception):
 
 
 def settings():
-    home = Path(os.environ.get('KRONOS_HOME', str(Path.home() / 'my-stack/Kronos'))).expanduser()
-    python = Path(os.environ.get('KRONOS_PYTHON', str(home / '.venv/bin/python'))).expanduser()
+    home = Path(os.environ.get('KRONOS_HOME', str(Path(r'C:/Program Files/TradePilot/kronos') if os.name == 'nt' else Path.home() / 'my-stack/Kronos'))).expanduser()
+    python = Path(os.environ.get('KRONOS_PYTHON', str(home / ('.venv/Scripts/python.exe' if os.name == 'nt' else '.venv/bin/python')))).expanduser()
     return home, python
 
 
@@ -64,8 +69,11 @@ def infer(history, dates, samples):
     # The model subprocess gets only public price bars, never gateway/broker credentials.
     env = {k: os.environ[k] for k in ('HOME', 'PATH', 'TMPDIR') if k in os.environ}
     env.update(HF_HUB_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1', TOKENIZERS_PARALLELISM='false', PYTHONNOUSERSITE='1')
+    if os.name == "nt":
+        from windows_runtime import child_environment
+        env = child_environment(os.environ)
     try:
-        run = subprocess.run([str(python), str(Path(__file__).with_name('kronos_worker.py')), str(home)],
+        run = model_run([str(python), str(Path(__file__).with_name('kronos_worker.py')), str(home)],
             input=json.dumps({'history': history, 'dates': dates, 'samples': samples}),
             text=True, capture_output=True, timeout=90, env=env, cwd=home)
         if run.returncode:

@@ -1,0 +1,6 @@
+server/paper_automation.py -text
+server/paper_calendar.py -text
+server/strategies.py -text
+server/research.py -text
+deploy/windows/** text eol=lf
+server/windows_runtime.py text eol=lf

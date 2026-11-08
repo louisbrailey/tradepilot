@@ -49,7 +49,7 @@ class KronosTests(unittest.TestCase):
     def test_subprocess_does_not_inherit_credentials(self):
         completed = Mock(returncode=0, stdout=json.dumps({'paths':[[1]*5]*3}))
         with patch.dict(k.os.environ, {'WEBULL_APP_SECRET':'must-not-leak','MASSIVE_API_KEY':'private'}), \
-             patch.object(k,'status', return_value={'configured':True}), patch.object(k.subprocess,'run',return_value=completed) as run:
+             patch.object(k,'status', return_value={'configured':True}), patch.object(k,'model_run',return_value=completed) as run:
             k.infer(bars()[:128], [1]*5, 3)
         env = run.call_args.kwargs['env']
         self.assertNotIn('WEBULL_APP_SECRET',env)
@@ -60,9 +60,9 @@ class KronosTests(unittest.TestCase):
         with patch.object(k,'status',return_value={'configured':True}):
             for val in [float('nan'), float('inf'), -1, True]:
                 completed=Mock(returncode=0,stdout=json.dumps({'paths':[[val]*5]*3}))
-                with patch.object(k.subprocess,'run',return_value=completed), self.assertRaises(k.KronosError):
+                with patch.object(k,'model_run',return_value=completed), self.assertRaises(k.KronosError):
                     k.infer([], [1]*5, 3)
-            with patch.object(k.subprocess,'run',side_effect=subprocess.TimeoutExpired('secret',90)), self.assertRaisesRegex(k.KronosError,'timed out'):
+            with patch.object(k,'model_run',side_effect=subprocess.TimeoutExpired('secret',90)), self.assertRaisesRegex(k.KronosError,'timed out'):
                 k.infer([], [1]*5, 3)
 
     def test_market_data_rejects_partial_and_unadjusted(self):

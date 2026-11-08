@@ -1,0 +1,5 @@
+# Windows gateway and SCM adapter. Kronos is a separate environment.
+pywin32==311
+tzdata==2026.2
+cryptography==50.0.2
+webull-openapi-python-sdk==3.0.4

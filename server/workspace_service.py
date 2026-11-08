@@ -1,5 +1,6 @@
 """Authenticated workspace features. No client-supplied prices or broker execution."""
 import os
+from private_storage import ensure_private_directory, runtime_path
 import re
 import threading
 import time
@@ -23,21 +24,19 @@ _lock = threading.Lock()
 
 
 def paper():
-    runtime = Path(os.environ.get("TRADEPILOT_RUNTIME", "runtime")).resolve()
+    runtime = runtime_path(os.environ.get("TRADEPILOT_RUNTIME", "runtime"))
     with _lock:
         if runtime not in _services:
-            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-            os.chmod(runtime, 0o700)
+            ensure_private_directory(runtime)
             _services[runtime] = PaperService(runtime / "paper.sqlite3")
         return _services[runtime]
 
 
 def automation():
-    runtime = Path(os.environ.get("TRADEPILOT_RUNTIME", "runtime")).resolve()
+    runtime = runtime_path(os.environ.get("TRADEPILOT_RUNTIME", "runtime"))
     with _lock:
         if runtime not in _automation_services:
-            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-            os.chmod(runtime, 0o700)
+            ensure_private_directory(runtime)
             _automation_services[runtime] = AutomationService(runtime / "automated-paper.sqlite3")
         return _automation_services[runtime]
 

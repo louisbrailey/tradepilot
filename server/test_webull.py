@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import json
 import sqlite3
@@ -478,7 +479,7 @@ class WebullAdapterTests(unittest.TestCase):
     def test_token_cache_is_scoped_to_environment(self):
         adapter = self.adapter(lambda order: {})
         self.assertEqual(adapter.client.api_client.token_dir,
-                         '/private/runtime/webull-tokens/production')
+                         str(Path('/private/runtime') / 'webull-tokens' / 'production'))
 
     def test_authentication_initialization_error_is_actionable_and_redacted(self):
         with self.assertRaises(BrokerError) as raised:
