@@ -36,6 +36,24 @@ class WindowsTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.parent)
 
+    def test_runtime_identity_through_windows_powershell_51(self):
+        # Exercise the legacy native argument boundary with a script path that
+        # contains spaces; no installer, SCM or runtime mutation is involved.
+        import platform
+        import struct
+        probe = self.root / 'runtime identity.py'
+        probe.write_bytes(Path(__file__).with_name('runtime_identity.py').read_bytes())
+        # A read-only native command works under the host's Restricted script
+        # policy; do not change policy merely to run a temporary PS1 wrapper.
+        def quoted(value):
+            return "'" + str(value).replace("'", "''") + "'"
+        command = f'& {quoted(sys.executable)} -I -B {quoted(probe)}; exit $LASTEXITCODE'
+        shell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        result = subprocess.run([str(shell), '-NoProfile', '-NonInteractive', '-Command', command],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), f'{platform.python_version()}/{struct.calcsize("P") * 8}')
+
     def test_acl_rejects_public_and_accepts_inherited_private(self):
         with self.assertRaises(ValueError): wr.private_path(self.parent, directory=True)
         child = wr.private_directory(self.root / 'child')

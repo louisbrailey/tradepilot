@@ -246,6 +246,7 @@ def local_ollama_request(path, body, timeout):
         result = json.loads(raw)
         if os.name == "nt" and path == "/api/chat" and (not isinstance(result, dict) or result.get("done") is not True):
             _local_ai_lock.poison()
+            raise RuntimeError("Local model response was incomplete")
     except Exception:
         if os.name == "nt" and path == "/api/chat":
             _local_ai_lock.poison()

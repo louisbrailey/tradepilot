@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import server
+from inference_guard import InferenceLock
 
 
 class LocalAITests(unittest.TestCase):
@@ -185,6 +186,56 @@ class LocalAITests(unittest.TestCase):
                 build.return_value.open.return_value = response
                 with self.assertRaises(RuntimeError):
                     server.local_ollama_request("/api/show", {"model": self.MODEL}, timeout=10)
+
+    def test_windows_transport_rejects_incomplete_valid_proposal_and_poisons_lock(self):
+        for done in (False, None, 1):
+            completion = self.completion(done=done)
+            # The embedded proposal is valid; completion state alone must reject it.
+            self.assertEqual(server.validate_reply(json.loads(completion["message"]["content"])), self.proposal())
+            lock = InferenceLock()
+            response = io.BytesIO(json.dumps(completion).encode())
+            response.status = 200
+            with self.subTest(done=done), patch.object(server.os, "name", "nt"), \
+                    patch.object(server, "_local_ai_lock", lock), patch.object(server, "build_opener") as build:
+                build.return_value.open.return_value = response
+                with self.assertRaisesRegex(RuntimeError, "Local model response was incomplete"):
+                    server.local_ollama_request("/api/chat", {"model": self.MODEL}, timeout=90)
+            self.assertTrue(lock.poisoned())
+            self.assertFalse(lock.acquire(blocking=False))
+            self.assertTrue(response.closed)
+
+    def test_windows_incomplete_transport_never_returns_an_assistant_proposal(self):
+        responses = [io.BytesIO(json.dumps(payload).encode())
+                     for payload in (self.metadata(), self.completion(done=False))]
+        for response in responses:
+            response.status = 200
+        lock = InferenceLock()
+        with patch.object(server.os, "name", "nt"), patch.object(server, "_local_ai_lock", lock), \
+                patch.object(server, "build_opener") as build, \
+                patch.object(server, "validate_reply", wraps=server.validate_reply) as validate, \
+                patch.object(server, "urlopen") as remote:
+            build.return_value.open.side_effect = responses
+            with self.assertRaisesRegex(RuntimeError, "Local model response was incomplete"):
+                server.assistant({"mode": "demo", "prompt": "sell 3 AAPL", "holdings": [], "accounts": []})
+            validate.assert_not_called()
+            self.assertTrue(lock.poisoned())
+            self.assertFalse(lock.locked())
+            with self.assertRaisesRegex(RuntimeError, "already processing"):
+                server.model_reply({}, server.INSTRUCTIONS)
+            self.assertEqual(build.return_value.open.call_count, 2)
+            remote.assert_not_called()
+
+    def test_transport_preserves_completed_windows_and_existing_posix_replies(self):
+        for platform, done in (("nt", True), ("posix", True), ("posix", False)):
+            completion = self.completion(done=done)
+            response = io.BytesIO(json.dumps(completion).encode())
+            response.status = 200
+            lock = InferenceLock()
+            with self.subTest(platform=platform, done=done), patch.object(server.os, "name", platform), \
+                    patch.object(server, "_local_ai_lock", lock), patch.object(server, "build_opener") as build:
+                build.return_value.open.return_value = response
+                self.assertEqual(server.local_ollama_request("/api/chat", {"model": self.MODEL}, timeout=90), completion)
+            self.assertFalse(lock.poisoned())
 
     def test_local_webull_proposal_still_requires_exact_user_command(self):
         class Broker:

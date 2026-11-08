@@ -55,7 +55,7 @@ if(-not ([IO.Path]::GetFullPath($Python)).StartsWith('C:\Program Files\',[String
 $signature=Get-AuthenticodeSignature $Python
 if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'CN=Python Software Foundation(?:,|$)'){throw 'Expected PSF-signed gateway Python'}
 $env:PYTHONDONTWRITEBYTECODE='1';$env:PYTHONNOUSERSITE='1'
-$version=& $Python -I -B -c 'import sys,struct;print("%s.%s.%s/%s" % (*sys.version_info[:3],struct.calcsize("P")*8))'
+$version=& $Python -I -B (Join-Path $bundleRoot 'source\deploy\windows\runtime_identity.py')
 if($LASTEXITCODE -or $version -ne '3.14.10/64'){throw 'Gateway Python3.14.10 x86_64 required'}
 New-Item -ItemType Directory -Path $install | Out-Null
 ProtectedTree $install
@@ -71,7 +71,7 @@ ProtectedTree $install
 if($LASTEXITCODE){throw 'Exact attested runtime extraction failed'}
 ProtectedTree "$install\model-python"
 $modelPython="$install\model-python\python.exe"
-$modelVersion=& $modelPython -I -B -c 'import sys,struct;print("%s.%s.%s/%s" % (*sys.version_info[:3],struct.calcsize("P")*8))'
+$modelVersion=& $modelPython -I -B "$install\source\deploy\windows\runtime_identity.py"
 if($LASTEXITCODE -or $modelVersion -ne '3.12.16/64'){throw 'Exact model runtime version/architecture mismatch'}
 & $Python -I -B -m venv "$install\venv"
 if($LASTEXITCODE){throw 'Gateway venv failed'}
