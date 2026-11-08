@@ -5,6 +5,7 @@ import subprocess
 import sys
 import threading
 import time
+import json
 import win32api
 import win32job
 import win32service
@@ -31,6 +32,7 @@ class BaseHost(win32serviceutil.ServiceFramework):
     def SvcDoRun(self):
         job = kill_job((5 if self._svc_name_ == 'TradePilotOllama' else 3) * 1024**3)
         win32job.AssignProcessToJobObject(job, win32api.GetCurrentProcess())
+        self.job = job
         errors = []
         def work():
             try: self.run_work()
@@ -61,7 +63,12 @@ class GatewayService(BaseHost):
         os.environ.clear()
         os.environ.update(safe)
         os.environ["USERPROFILE"] = str(ROOT / "private")
-        gateway.run(ROOT, self.stop, Path(r'C:\Program Files\Tailscale\tailscale.exe'))
+        os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+        if (ROOT/'preflight-request.json').exists():
+            import service_preflight
+            service_preflight.run(ROOT, INSTALL, self.stop, self.job)
+        else:
+            gateway.run(ROOT, self.stop, Path(r'C:\Program Files\Tailscale\tailscale.exe'))
 
 
 class OllamaService(BaseHost):
@@ -74,7 +81,7 @@ class OllamaService(BaseHost):
         root = private_path(Path(r'C:/ProgramData/TradePilotOllama'), directory=True)
         executable = INSTALL / 'ollama/ollama.exe'
         env = {k: os.environ[k] for k in ('SystemRoot', 'WINDIR', 'PATH') if k in os.environ}
-        env.update(USERPROFILE=str(root), TEMP=str(root), TMP=str(root), OLLAMA_MODELS=str(root / 'models'),
+        env.update(USERPROFILE=str(root), TEMP=str(root), TMP=str(root), OLLAMA_MODELS=str(INSTALL / 'public-models/ollama'),
                    CUDA_VISIBLE_DEVICES='-1', OLLAMA_VULKAN='0', GGML_VK_VISIBLE_DEVICES='-1',
                    OLLAMA_HOST='127.0.0.1:11434', OLLAMA_NO_CLOUD='1',
                    OLLAMA_NUM_PARALLEL='1', OLLAMA_MAX_LOADED_MODELS='1',
@@ -85,10 +92,18 @@ class OllamaService(BaseHost):
             probe.bind(('127.0.0.1', 11434))
         child = subprocess.Popen([str(executable), 'serve'], env=env,
                                  cwd=root, creationflags=subprocess.CREATE_NO_WINDOW)
+        def memory_receipt(final=False):
+            info=win32job.QueryInformationJobObject(self.job,win32job.JobObjectExtendedLimitInformation)
+            record={'service':'TradePilotOllama','host_pid':os.getpid(),'child_pid':child.pid,
+                    'peak_job_committed_bytes':info['PeakJobMemoryUsed'], 'job_limit_bytes':5*1024**3,
+                    'cpu_only':True,'timestamp':time.time(),'final':final}
+            temp=root/'memory-status.tmp'; temp.write_text(json.dumps(record)+'\n'); temp.replace(root/'memory-status.json')
         try:
             while not self.stop.wait(.5):
                 if child.poll() is not None: raise RuntimeError('Ollama exited')
+                memory_receipt()
         finally:
+            memory_receipt(True)
             child.terminate()
             try: child.wait(10)
             except subprocess.TimeoutExpired: child.kill(); child.wait(5)

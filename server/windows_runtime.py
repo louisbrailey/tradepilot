@@ -77,6 +77,39 @@ def private_directory(path):
     return private_path(p, directory=True)
 
 
+def admin_control_file(path):
+    """Nonsecret control file: SYSTEM/Admin owner and no other writable ACE."""
+    p = ordinary_path(path)
+    if not p.is_file() or p.stat().st_nlink != 1:
+        raise ValueError('Control file must be ordinary and unaliased')
+    _, _, _, sec = _api()
+    sd = sec.GetNamedSecurityInfo(str(p), sec.SE_FILE_OBJECT,
+        sec.OWNER_SECURITY_INFORMATION | sec.DACL_SECURITY_INFORMATION)
+    admins = {'S-1-5-18', 'S-1-5-32-544'}
+    if sec.ConvertSidToStringSid(sd.GetSecurityDescriptorOwner()) not in admins:
+        raise ValueError('Control file must have an administrator owner')
+    acl = sd.GetSecurityDescriptorDacl()
+    if acl is None: raise ValueError('Unrestricted control file')
+    write = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000 | 0x40000000 | 0x10000000
+    for i in range(acl.GetAceCount()):
+        ace = acl.GetAce(i)
+        if ace[0][0] not in (sec.ACCESS_ALLOWED_ACE_TYPE, sec.ACCESS_DENIED_ACE_TYPE):
+            raise ValueError('Unsupported control ACE')
+        if ace[0][0] == sec.ACCESS_ALLOWED_ACE_TYPE and not ace[0][1] & 8:
+            if ace[1] & write and sec.ConvertSidToStringSid(ace[2]) not in admins:
+                raise ValueError('Control file is writable outside administrators')
+    return p
+
+
+class RuntimeLease:
+    def __init__(self, root):
+        self.root, self.active = root, True
+
+    def require(self, root):
+        if not self.active or self.root != Path(root):
+            raise ValueError('Live snapshot requires the held runtime writer lease')
+
+
 def create_scratch_root(path):
     """Explicit provisioning for owned disposable tests, not production repair."""
     api, con, file, sec = _api()
@@ -106,10 +139,12 @@ def exclusive_runtime(root):
         private_path(lock)
     handle = file.CreateFile(str(lock), con.GENERIC_READ | con.GENERIC_WRITE, 0,
                              None, con.OPEN_ALWAYS, con.FILE_ATTRIBUTE_NORMAL, None)
+    lease = RuntimeLease(root)
     try:
         private_path(lock)
-        yield
+        yield lease
     finally:
+        lease.active = False
         handle.Close()
 
 
@@ -118,6 +153,7 @@ def child_environment(source):
             'HOME', 'HF_HOME', 'HF_HUB_CACHE')
     env = {k: source[k] for k in keys if k in source}
     env.update(HF_HUB_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1',
+               HF_HUB_DISABLE_IMPLICIT_TOKEN='1', PYTHONDONTWRITEBYTECODE='1',
                TOKENIZERS_PARALLELISM='false', PYTHONNOUSERSITE='1',
                PYTHONUTF8='1')
     return env

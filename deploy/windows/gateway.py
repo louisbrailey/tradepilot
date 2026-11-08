@@ -56,7 +56,7 @@ def run(root, stopped, tailscale):
     root = private_path(Path(root), directory=True)
     activation(root)
     remote = remote_module()
-    with exclusive_runtime(root / 'private'):
+    with exclusive_runtime(root / 'private') as lease:
         # Retry unavailable Tailscale before constructing any worker/listener.
         while not stopped.is_set():
             try:
@@ -83,9 +83,14 @@ def run(root, stopped, tailscale):
         serving = threading.Thread(target=http.serve_forever, name='gateway-http', daemon=True)
         serving.start()
         try:
+            import snapshots
+            backup_worker = snapshots.start_periodic(root, lease)
+            if backup_worker is not None: workers.append(backup_worker)
             workers.append(server.start_worker(server.automation()))
             workers.append(server.start_alert_worker(server.alerts, server.market_data))
             while not stopped.wait(5):
+                if backup_worker is not None and not backup_worker[1].is_alive():
+                    raise RuntimeError('Backup worker terminated unexpectedly')
                 if server._local_ai_lock.poisoned():
                     # Drain workers and fail this service instance. SCM recovery
                     # re-enters ollama_idle before any replacement worker starts.

@@ -16,6 +16,8 @@ import threading
 import time
 import zipfile
 import package_candidate
+import service_preflight
+import runtime_provenance
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'server'))
 import windows_runtime as wr
 import snapshots
@@ -177,6 +179,43 @@ class WindowsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 gateway.run(self.root, threading.Event(), Path('unused'))
             remote.assert_not_called()
+
+    def test_preflight_refuses_activation_and_user_owned_request(self):
+        (self.root/'cutover-allow.json').write_text('{}')
+        with self.assertRaisesRegex(ValueError,'activation'): service_preflight.request(self.root)
+        (self.root/'cutover-allow.json').unlink()
+        (self.root/'preflight-request.json').write_text('{}')
+        with self.assertRaisesRegex(ValueError,'administrator owner'): service_preflight.request(self.root)
+
+    def test_preflight_network_guard_rejects_listener_and_external_traffic(self):
+        service_preflight.network_guard('socket.connect',(None,('127.0.0.1',11434)))
+        for event,args in [('socket.bind',(None,('127.0.0.1',0))),('socket.connect',(None,('127.0.0.1',8787))),('socket.getaddrinfo',('provider.example',443))]:
+            with self.assertRaises(RuntimeError): service_preflight.network_guard(event,args)
+
+    def test_synthetic_service_snapshot_drill_and_expired_lease(self):
+        result=service_preflight.synthetic_snapshot_drill(self.root)
+        self.assertTrue(result['passed'])
+        self.assertFalse(result['whole_set_atomic'])
+        private=self.root/'backup-drill/private'
+        with wr.exclusive_runtime(private) as lease: pass
+        with self.assertRaisesRegex(ValueError,'held runtime'): snapshots.live_backup(self.root/'backup-drill',lease)
+
+    def test_runtime_archive_gate_rejects_other_bytes_and_unsafe_members(self):
+        archive=self.root/'untrusted.tar.gz';archive.write_bytes(b'not reviewed')
+        receipt=self.root/'receipt.json';receipt.write_text('{}')
+        with self.assertRaisesRegex(ValueError,'provenance'): runtime_provenance.extract(archive,receipt,self.root/'new')
+        self.assertFalse((self.root/'new').exists())
+        for path in ('../python/exe','python/../escape','python/C:bad','python/CON','python/name.','other/python.exe'):
+            with self.assertRaises(ValueError): runtime_provenance.safe_member(path)
+
+    def test_live_backup_disk_budget_does_not_publish_completion(self):
+        private=wr.private_directory(self.root/'private')
+        runtime=wr.private_directory(private/'runtime')
+        with closing(sqlite3.connect(runtime/'paper.sqlite3')) as db:
+            db.execute('CREATE TABLE sample(value)');db.commit()
+        with wr.exclusive_runtime(private) as lease:
+            with self.assertRaisesRegex(ValueError,'budget'): snapshots.live_backup(self.root,lease,max_bytes=1)
+        self.assertEqual(list((self.root/'backups').glob('*/complete.json')),[])
 
     def test_gateway_shutdown_signals_both_workers_without_network(self):
         self.check_gateway_shutdown(False)
