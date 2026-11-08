@@ -127,15 +127,18 @@ def run(root, install, stopped, job):
             GATEWAY_DISABLED='enabled',BROKER_KILL_SWITCH='enabled',WEBULL_LIVE_TRADING='disabled',COINBASE_LIVE_TRADING='disabled',COINBASE_TRANSFERS='disabled')
         sys.addaudithook(network_guard)
         import cryptography, win32serviceutil, webull, server, kronos_service
+        report['stage']='runtime-integrity'
         report['runtime']=verify_installed(install/'model-python')
         report['gateway_python']=sys.version
         if sys.version_info[:3]!=(3,14,10): raise ValueError('Expected gateway Python3.14.10')
         report['bundle_manifest_sha256']=hashlib.sha256(admin_control_file(install/'bundle-manifest.json').read_bytes()).hexdigest()
+        report['stage']='tailscale-access'
         state=tailscale_status(Path(r'C:/Program Files/Tailscale/tailscale.exe'))
         me=state.get('Self',{})
         if state.get('BackendState')!='Running' or me.get('Online') is not True or data['tailscale_address'] not in me.get('TailscaleIPs',[]):
             raise ValueError('Service identity lacks matching online Tailscale access')
         report['tailscale_access']=True
+        report['stage']='dedicated-ollama-identity'
         report['ollama_service']=ollama_service_listener(); ollama_idle()
         opener=build_opener(ProxyHandler({}),server.NoLocalRedirects())
         def get(path):
@@ -149,6 +152,7 @@ def run(root, install, stopped, job):
             raise ValueError('Reviewed 4B digest missing')
         report['model_digest']=expected
         for prompt,expected_reply in [('sell 3 AAPL',('trade','sell','3','AAPL')),('buy 1.5 MSFT',('trade','buy','1.5','MSFT')),('Do not sell 3 AAPL',('message',None,None,None))]:
+            report['stage']='4b-synthetic-semantics'
             if stopped.is_set(): raise InterruptedError('Preflight stopped')
             before=time.monotonic()
             context={'mode':'webull','prompt':prompt,'environment':'sandbox','snapshot':{'positions':[
@@ -161,11 +165,13 @@ def run(root, install, stopped, job):
         if ollama_service_listener()!=report['ollama_service']: raise ValueError('Model service changed during preflight')
         history=[{'t':1700000000000+i*86400000,'o':100+i*.1,'h':101+i*.1,'l':99+i*.1,'c':100.5+i*.1,'v':1000+i} for i in range(128)]
         for horizon in (5,20):
+            report['stage']='kronos-'+str(horizon)
             if stopped.is_set(): raise InterruptedError('Preflight stopped')
             before=time.monotonic()
             with kronos_service._LOCK:
                 result=kronos_service.infer(history,[history[-1]['t']+(i+1)*86400000 for i in range(horizon)],3)
             report['steps'].append({'fixture':'Kronos','horizon':horizon,'samples':len(result['paths']),'passed':True,'seconds':round(time.monotonic()-before,3)})
+        report['stage']='synthetic-backup-restore'
         report['backup_restore']=synthetic_snapshot_drill(out)
         report['gateway_job_peak_committed_bytes']=win32job.QueryInformationJobObject(job,win32job.JobObjectExtendedLimitInformation)['PeakJobMemoryUsed']
         report['ollama_memory_receipt']='C:/ProgramData/TradePilotOllama/memory-status.json (administrator reads separately)'

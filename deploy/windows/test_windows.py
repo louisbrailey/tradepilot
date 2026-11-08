@@ -18,6 +18,8 @@ import zipfile
 import package_candidate
 import service_preflight
 import runtime_provenance
+import maintenance
+import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'server'))
 import windows_runtime as wr
 import snapshots
@@ -216,6 +218,26 @@ class WindowsTests(unittest.TestCase):
         with wr.exclusive_runtime(private) as lease:
             with self.assertRaisesRegex(ValueError,'budget'): snapshots.live_backup(self.root,lease,max_bytes=1)
         self.assertEqual(list((self.root/'backups').glob('*/complete.json')),[])
+
+    def test_service_maintenance_fenced_restore_keeps_live_runtime_untouched(self):
+        service_preflight.synthetic_snapshot_drill(self.root)
+        root=self.root/'backup-drill'
+        snapshot=next((root/'backups').iterdir())
+        manifest=snapshots.digest(snapshot/'complete.json')
+        nonce=str(uuid.uuid4())
+        control=root/'maintenance-request.json'
+        request={'version':1,'action':'restore-isolated','nonce':nonce,'snapshot':snapshot.name,'manifest_sha256':manifest}
+        control.write_text(json.dumps(request))
+        original=snapshots.digest(root/'private/runtime/paper.sqlite3')
+        with patch.object(service_preflight,'service_identity',return_value='synthetic-test-only'),patch.object(maintenance,'admin_control_file',return_value=control):
+            result=maintenance.service_run(root)
+            self.assertEqual(result['status'],'passed')
+            self.assertFalse(result['restored_into_runtime'])
+            self.assertTrue((root/'private/restores'/nonce/'paper.sqlite3').exists())
+            self.assertEqual(snapshots.digest(root/'private/runtime/paper.sqlite3'),original)
+            with self.assertRaisesRegex(ValueError,'nonce'): maintenance.service_run(root)
+            (root/'cutover-allow.json').write_text('{}')
+            with self.assertRaisesRegex(ValueError,'activation'): maintenance.service_run(root)
 
     def test_gateway_shutdown_signals_both_workers_without_network(self):
         self.check_gateway_shutdown(False)

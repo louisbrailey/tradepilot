@@ -64,7 +64,13 @@ class GatewayService(BaseHost):
         os.environ.update(safe)
         os.environ["USERPROFILE"] = str(ROOT / "private")
         os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
-        if (ROOT/'preflight-request.json').exists():
+        preflight=(ROOT/'preflight-request.json').exists()
+        maintenance=(ROOT/'maintenance-request.json').exists()
+        if preflight and maintenance: raise ValueError('Conflicting service control requests')
+        if maintenance:
+            from maintenance import service_run
+            service_run(ROOT)
+        elif preflight:
             import service_preflight
             service_preflight.run(ROOT, INSTALL, self.stop, self.job)
         else:

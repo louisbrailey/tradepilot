@@ -32,9 +32,11 @@ An exclusive writer lease excludes another gateway/offline restore. Periodic bac
 
 C: is the only physical storage. Mac owner can mirror completed manifests/listedfiles over pinned SSH to owner-only storage when awake, verify hashes and unchanged source manifest, and publish destination completion last. No backup HTTP endpoint or PC dependency on Mac availability. Partial transfers stay separate; no automatic evidence pruning. Actual periodic/off-host restore acceptance remains required.
 
+Offline operational maintenance also uses the same GatewayService virtual identity: Prepare-ServiceMaintenance.ps1 requires stopped/fenced gateway and no activation/preflight request. It creates an admin-owned nonce request for backup or restore-isolated with an exact completion-manifest hash. The service checks its real SID and fence, takes the exclusive lease and restores only into private/restores/nonce, never private/runtime. It writes a sanitized private/maintenance/nonce receipt and stops. The owner explicitly runs the service for maintenance and removes the preserved request after review. Conflicting control modes fail closed. This avoids an external administrator pretending to satisfy gateway-SID private ACL checks.
+
 ## Evidence and remaining gates
 
-Python3.14.10 isolated offline environment:278backend and22Windows/SDK tests pass. Coverage includes ACL/reparse/hardlink, noisy grandchild termination, lock/platform rejection, synthetic service backup/restore, expired lease/budget rejection, preflight activation/owner/network denial and drained poison restart. PowerShell parses; these are not actual SCM integration passes.
+Python3.14.10 isolated offline environment:278backend and23Windows/SDK tests pass. Coverage includes ACL/reparse/hardlink, noisy grandchild termination, lock/platform rejection, synthetic service backup/restore, expired lease/budget rejection, preflight activation/owner/network denial and drained poison restart. PowerShell parses; these are not actual SCM integration passes.
 
 Interactive CPU4B synthetic holdings: sell3AAPL12.356s/buy1.5MSFT12.983s/negation14.148s at keep_alive0. Warm3.693s used5m only for comparison. Loaded model bytes/VRAM are not peak memory. Exact attested3.12.16 Kronos passed5sessions26.093s/20sessions14.448s, unchanged90s, pinned refs/fourthreads/three samples, network-denied Python and cachedweights. All27versions match lock. Nonbytecode runtime members matched; initial12pyc rewrites were recorded and production extraction now omits pyc. Timings are not controlled comparisons.
 
