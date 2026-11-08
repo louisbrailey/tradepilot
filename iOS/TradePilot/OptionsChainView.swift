@@ -13,11 +13,14 @@ struct OptionsChainView: View {
     @State private var message = ""
     @State private var loading = false
     @State private var selected: OptionContract?
+    @State private var loadID = UUID()
 
     private var binding: BrokerConnectionBinding { .init(endpoint: store.aiEndpoint, token: store.aiToken) }
 
     var body: some View {
-        SubScreen(title: "\(symbol) options", refresh: { await load() }) {
+        SubScreen(title: "\(symbol) options", refresh: {
+            if expiration == nil { await load() } else { expiration = nil }
+        }) {
             HStack { StatusBadge("Research only", tone: .accent); Spacer(); if loading { ProgressView() } }
             if !message.isEmpty { InlineNotice(kind: chain == nil ? .error : .warning, message: message) }
             if let chain {
@@ -30,7 +33,7 @@ struct OptionsChainView: View {
                         .pickerStyle(.segmented)
                     table(chain)
                 }
-                Footnote("Option quotes from Massive via your TradePilot server, as of \(MarketFormat.time(chain.as_of)). Each contract covers 100 shares. Quotes can be delayed. TradePilot cannot trade options, and none of this is a recommendation.")
+                Footnote("Chain fetched from Massive at \(MarketFormat.time(chain.as_of)). Quotes can be delayed. Contract sizes and deliverables can vary; see contract details. TradePilot cannot trade options.")
             } else if loading {
                 ProgressView("Loading option chain").frame(maxWidth: .infinity).padding(.vertical, Spacing.xl)
             }
@@ -125,16 +128,16 @@ struct OptionsChainView: View {
 
     private func load() async {
         let request = binding, wanted = expiration
-        guard store.hasServerSettings else { message = "Connect your server in Settings to see options."; return }
+        let attempt = UUID(); loadID = attempt
+        guard store.hasServerSettings else { chain = nil; message = "Connect your server in Settings to see options."; loading = false; return }
         loading = true
-        defer { loading = false }
+        defer { if attempt == loadID { loading = false } }
         do {
             let loaded = try await MarketAPI.options(symbol, expiration: wanted, endpoint: request.endpoint, token: request.token)
-            guard request == binding, wanted == expiration else { return }
+            guard attempt == loadID, request == binding, wanted == expiration else { return }
             chain = loaded; message = ""
-            if expiration == nil { expiration = loaded.expiration }
         } catch {
-            guard request == binding else { return }
+            guard attempt == loadID, request == binding, wanted == expiration else { return }
             message = error.localizedDescription
         }
     }
@@ -168,7 +171,7 @@ private struct OptionRow: View {
     let contract: OptionContract
     let inTheMoney: Bool
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 2) {
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: Spacing.xs) {
                     Text("Strike \(MarketFormat.price(contract.strike))").font(.subheadline.weight(.semibold))
@@ -186,12 +189,17 @@ private struct OptionRow: View {
                 }
                 .font(.subheadline).monospacedDigit()
             }
+            if contract.standard_contract == false {
+                Text("\(contract.series ?? "Adjusted") · nonstandard contract")
+                    .font(.caption2).foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.vertical, Spacing.s).padding(.horizontal, Spacing.xs)
         .background(inTheMoney ? Theme.accent.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(contract.type == "call" ? "Call" : "Put") strike \(MarketFormat.price(contract.strike)), bid \(MarketFormat.premium(contract.bid)), ask \(MarketFormat.premium(contract.ask)), implied volatility \(iv)\(inTheMoney ? ", in the money" : "")")
+        .accessibilityLabel("\(contract.type == "call" ? "Call" : "Put") strike \(MarketFormat.price(contract.strike)), bid \(MarketFormat.premium(contract.bid)), ask \(MarketFormat.premium(contract.ask)), implied volatility \(iv)\(inTheMoney ? ", in the money" : "")\(contract.standard_contract == false ? ", nonstandard contract \(contract.series ?? "")" : "")")
         .accessibilityHint("Shows contract details")
     }
     private var iv: String { contract.implied_volatility.map { String(format: "%.1f%%", $0) } ?? "—" }
@@ -227,6 +235,13 @@ struct OptionContractSheet: View {
                 VStack(alignment: .leading, spacing: Spacing.l) {
                     HStack { StatusBadge(contract.type == "call" ? "Call" : "Put", tone: .accent); StatusBadge("Research only"); Spacer() }
                     Text("\(symbol) \(MarketFormat.price(contract.strike)) \(contract.type)").font(.title2.weight(.semibold))
+                    SectionCard(title: "Contract") {
+                        DetailRow("Symbol", contract.contract.replacingOccurrences(of: "O:", with: ""))
+                        DetailRow("Shares per contract", MarketFormat.compact(contract.shares_per_contract))
+                        if contract.standard_contract != true {
+                            Footnote("Standard contract terms are not confirmed. Deliverables may include other shares or cash; a contract premium estimate is unavailable.")
+                        }
+                    }
                     SectionCard(title: "Quote") {
                         DetailRow("Bid", MarketFormat.premium(contract.bid))
                         DetailRow("Ask", MarketFormat.premium(contract.ask))
@@ -236,7 +251,8 @@ struct OptionContractSheet: View {
                         DetailRow("Volume", MarketFormat.compact(contract.volume))
                         DetailRow("Open interest", MarketFormat.compact(contract.open_interest))
                         DetailRow("Break-even", MarketFormat.price(contract.break_even))
-                        if let mid = contract.mid { DetailRow("Cost of one contract at mid", MarketFormat.price(mid * 100)) }
+                        if let premium = contract.estimatedPremium { DetailRow("Estimated premium at mid", MarketFormat.price(premium)) }
+                        DetailRow("Quote updated", MarketFormat.time(contract.quote_updated))
                     }
                     SectionCard(title: "Greeks", footer: "Model estimates from the data provider; they change with price, time and volatility.") {
                         DetailRow("Implied volatility", contract.implied_volatility.map { String(format: "%.1f%%", $0) } ?? "—")

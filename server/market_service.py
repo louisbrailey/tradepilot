@@ -15,7 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError
-from urllib.parse import quote, unquote, urlencode, urlsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 from urllib.request import Request, build_opener
 
 from paper_calendar import ET, next_session, session as is_session
@@ -26,6 +26,7 @@ MARKET_ROUTES = ("/v1/market/overview", "/v1/market/quotes", "/v1/market/search"
 SYMBOL = re.compile(r"[A-Z][A-Z0-9.\-]{0,14}")
 CURRENCY = re.compile(r"[A-Z0-9]{2,10}")
 ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+OPTION_TICKER = re.compile(r"O:([A-Z0-9.]{1,25})(\d{6})([CP])(\d{8})")
 MAX_OPTION_PAGES = 4
 MAX_CURRENCIES = 60
 QUERY = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .&'\-]{0,39}")
@@ -275,29 +276,54 @@ def _any_epoch(value):
     return None
 
 
-def option_quote(row):
+def option_date(value):
+    if isinstance(value, str) and ISO_DATE.fullmatch(value):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            pass
+    return None
+
+
+def option_quote(row, reference=None):
     """One option contract from a chain snapshot, or None when its identity is unusable."""
     row = _dict(row)
     details, quote, trade = _dict(row.get("details")), _dict(row.get("last_quote")), _dict(row.get("last_trade"))
     greeks, day = _dict(row.get("greeks")), _dict(row.get("day"))
     kind, strike = details.get("contract_type"), _number(details.get("strike_price"), True)
-    ticker = details.get("ticker")
-    if kind not in ("call", "put") or strike is None or not isinstance(ticker, str) or not re.fullmatch(r"O:[A-Z0-9.]{1,40}", ticker):
+    ticker, expiration = details.get("ticker"), option_date(details.get("expiration_date"))
+    identity = OPTION_TICKER.fullmatch(ticker) if isinstance(ticker, str) else None
+    if (kind not in ("call", "put") or strike is None or identity is None or expiration is None
+            or identity[2] != expiration.strftime("%y%m%d") or identity[3] != ("C" if kind == "call" else "P")
+            or not math.isclose(int(identity[4]) / 1000, strike, rel_tol=0, abs_tol=1e-7)):
         return None
+    reference = _dict(reference)
+    if any(reference.get(field) != details.get(field) for field in ("ticker", "contract_type", "strike_price", "expiration_date")):
+        reference = {}
+    snapshot_shares, reference_shares = _number(details.get("shares_per_contract"), True), _number(reference.get("shares_per_contract"), True)
+    shares = snapshot_shares or reference_shares
+    if snapshot_shares is not None and reference_shares is not None and snapshot_shares != reference_shares:
+        shares = None
+    additional = reference.get("additional_underlyings", [])
+    standard = (shares == 100 and not additional) if reference and shares is not None and isinstance(additional, list) else None
     bid, ask = _number(quote.get("bid")), _number(quote.get("ask"))
     if bid is not None and bid < 0 or ask is not None and ask < 0 or (bid is not None and ask is not None and ask < bid):
         bid = ask = None
     iv = _number(row.get("implied_volatility"), True)
+    volume, interest = _number(day.get("volume")), _number(row.get("open_interest"))
     stamps = [stamp for stamp in (_any_epoch(quote.get("last_updated")), _any_epoch(trade.get("sip_timestamp")),
                                   _any_epoch(day.get("last_updated"))) if stamp]
     return {
-        "contract": ticker, "type": kind, "strike": _round(strike), "bid": _round(bid), "ask": _round(ask),
+        "contract": ticker, "series": identity[1], "type": kind, "strike": _round(strike), "bid": _round(bid), "ask": _round(ask),
+        "shares_per_contract": shares, "standard_contract": standard,
         "last": _round(_number(trade.get("price"), True)), "change_percent": _round(_number(day.get("change_percent"))),
-        "volume": _number(day.get("volume")) or 0, "open_interest": _number(row.get("open_interest")) or 0,
+        "volume": volume if volume is not None and volume >= 0 else None,
+        "open_interest": interest if interest is not None and interest >= 0 else None,
         "implied_volatility": _round(iv * 100, 2) if iv is not None and iv < 50 else None,
         "delta": _round(_number(greeks.get("delta")), 4), "gamma": _round(_number(greeks.get("gamma")), 4),
         "theta": _round(_number(greeks.get("theta")), 4), "vega": _round(_number(greeks.get("vega")), 4),
         "break_even": _round(_number(row.get("break_even_price"), True)), "updated": max(stamps) if stamps else None,
+        "quote_updated": _any_epoch(quote.get("last_updated")),
     }
 
 
@@ -685,16 +711,15 @@ class MarketService:
     def _paged(self, path, params, fresh_for, pages=MAX_OPTION_PAGES):
         """Results across the provider's cursor pages, following only links back to the provider itself."""
         rows, body = [], self._get(path, params, fresh_for, 600)
-        for _ in range(pages):
+        for page in range(pages):
             rows.extend(item for item in _dict(body).get("results") or [] if isinstance(item, dict))
             link = _dict(body).get("next_url")
-            if not isinstance(link, str):
+            if not isinstance(link, str) or page + 1 == pages:
                 break
             parts = urlsplit(link)
             if parts.scheme != "https" or parts.netloc != urlsplit(MassiveClient.base).netloc:
                 break
-            query = dict(pair.split("=", 1) for pair in parts.query.split("&") if "=" in pair)
-            body = self._get(parts.path, {key: unquote(value) for key, value in query.items()}, fresh_for, 600)
+            body = self._get(parts.path, dict(parse_qsl(parts.query)), fresh_for, 600)
         return rows
 
     def options(self, payload):
@@ -702,29 +727,38 @@ class MarketService:
         _exact(payload, ("symbol",), ("expiration",))
         ticker = valid_symbol(payload["symbol"])
         wanted = payload.get("expiration")
-        if wanted is not None and (not isinstance(wanted, str) or not ISO_DATE.fullmatch(wanted)):
+        if wanted is not None and option_date(wanted) is None:
             raise MarketRequestError("Choose an expiration date such as 2026-11-20.")
         today = self._today().isoformat()
         contracts = self._paged("/v3/reference/options/contracts", {"underlying_ticker": ticker, "expired": "false",
                                 "expiration_date.gte": today, "limit": 1000, "sort": "expiration_date", "order": "asc"}, 3600, pages=2)
         expirations = sorted({row["expiration_date"] for row in contracts
-                              if isinstance(row.get("expiration_date"), str) and ISO_DATE.fullmatch(row["expiration_date"])})
+                              if option_date(row.get("expiration_date")) and row["expiration_date"] >= today})[:24]
+        if wanted is not None and wanted not in expirations:
+            raise MarketRequestError("That expiration is no longer available. Refresh the chain and choose another date.")
         if not expirations:
             return {"symbol": ticker, "expirations": [], "expiration": None, "underlying": None, "strikes": [],
                     "source": "Massive", "as_of": self.clock()}
-        expiration = wanted if wanted in expirations else expirations[0]
+        expiration = wanted or expirations[0]
         rows = self._paged(f"/v3/snapshot/options/{quote(ticker, safe='')}", {"expiration_date": expiration, "limit": 250,
                            "sort": "strike_price", "order": "asc"}, 30)
         by_strike, underlying = {}, None
+        references = {row.get("ticker"): row for row in contracts if isinstance(row.get("ticker"), str)}
         for row in rows:
-            contract = option_quote(row)
-            if contract and _dict(row.get("details")).get("expiration_date") == expiration:
-                by_strike.setdefault(contract["strike"], {})[contract["type"]] = contract
+            details = _dict(row.get("details"))
+            contract_id = details.get("ticker")
+            contract = option_quote(row, references.get(contract_id) if isinstance(contract_id, str) else None)
+            if contract is None or details.get("expiration_date") != expiration:
+                continue
             asset = _dict(row.get("underlying_asset"))
+            if asset.get("ticker") not in (None, ticker):
+                continue
+            by_strike.setdefault((contract["strike"], contract["series"]), {})[contract["type"]] = contract
             if asset.get("ticker") == ticker:
                 underlying = _number(asset.get("price"), True) or underlying
-        strikes = [{"strike": strike, "call": pair.get("call"), "put": pair.get("put")} for strike, pair in sorted(by_strike.items())]
-        return {"symbol": ticker, "expirations": expirations[:24], "expiration": expiration,
+        strikes = [{"strike": strike, "series": series, "call": pair.get("call"), "put": pair.get("put")}
+                   for (strike, series), pair in sorted(by_strike.items())]
+        return {"symbol": ticker, "expirations": expirations, "expiration": expiration,
                 "underlying": _round(underlying), "strikes": strikes, "source": "Massive", "as_of": self.clock()}
 
     def chart(self, payload):

@@ -194,20 +194,38 @@ struct OptionContract: Decodable, Sendable, Identifiable {
     var id: String { contract }
     let contract: String; let type: String; let strike: Double
     let bid: Double?; let ask: Double?; let last: Double?; let change_percent: Double?
-    let volume: Double; let open_interest: Double; let implied_volatility: Double?
+    let volume: Double?; let open_interest: Double?; let implied_volatility: Double?
     let delta: Double?; let gamma: Double?; let theta: Double?; let vega: Double?
     let break_even: Double?; let updated: Double?
+    let series: String?; let shares_per_contract: Double?; let standard_contract: Bool?; let quote_updated: Double?
     var mid: Double? { bid.flatMap { b in ask.map { (b + $0) / 2 } } }
+    var estimatedPremium: Double? { standard_contract == true && shares_per_contract == 100 ? mid.map { $0 * 100 } : nil }
 }
 
 struct OptionStrike: Decodable, Sendable, Identifiable {
-    var id: Double { strike }
+    var id: String { "\(series ?? ""):\(strike)" }
+    let series: String?
     let strike: Double; let call: OptionContract?; let put: OptionContract?
 }
 
 struct OptionChain: Decodable, Sendable {
     let symbol: String; let expirations: [String]; let expiration: String?
     let underlying: Double?; let strikes: [OptionStrike]; let as_of: Double
+
+    func matches(symbol requestedSymbol: String, expiration requestedExpiration: String?) -> Bool {
+        guard symbol == requestedSymbol,
+              expiration.map({ expirations.contains($0) }) ?? strikes.isEmpty,
+              requestedExpiration == nil || expiration == requestedExpiration,
+              Set(strikes.map(\.id)).count == strikes.count,
+              zip(strikes, strikes.dropFirst()).allSatisfy({ $0.strike <= $1.strike }) else { return false }
+        return strikes.allSatisfy { row in
+            row.strike.isFinite && row.strike > 0 && (row.call != nil || row.put != nil) &&
+            [(row.call, "call"), (row.put, "put")].allSatisfy { contract, side in
+                guard let contract else { return true }
+                return contract.type == side && contract.strike == row.strike && contract.series == row.series
+            }
+        }
+    }
 }
 
 private struct OptionsRequest: Encodable, Sendable { let symbol: String; let expiration: String? }
@@ -216,8 +234,7 @@ extension MarketAPI {
     static func options(_ symbol: String, expiration: String?, endpoint: String, token: String) async throws -> OptionChain {
         let chain: OptionChain = try await post("v1/market/options", OptionsRequest(symbol: symbol, expiration: expiration),
                                                 endpoint: endpoint, token: token, timeout: 60)
-        guard chain.symbol == symbol, chain.expiration.map({ chain.expirations.contains($0) }) ?? chain.strikes.isEmpty,
-              zip(chain.strikes, chain.strikes.dropFirst()).allSatisfy({ $0.strike < $1.strike }) else {
+        guard chain.matches(symbol: symbol, expiration: expiration) else {
             throw WorkspaceError(message: "Your server returned an unusable option chain.")
         }
         return chain

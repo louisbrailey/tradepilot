@@ -13,6 +13,8 @@ The Markets tab is the app's market data workspace: session status, index ETFs, 
 
 Each quote page links to a read-only **options chain**: upcoming expirations, calls or puts by strike around the last price (or every strike), in-the-money rows tinted, and a contract sheet with bid, ask, mid, last, volume, open interest, break-even, implied volatility and Greeks. TradePilot cannot trade options; the chain is research only.
 
+Standard and adjusted series at the same strike stay separate. Contract details show the provider's share count and quote timestamp; missing activity stays unavailable rather than becoming zero. A midpoint premium estimate is shown only when matching contract-reference data confirms 100 shares with no additional deliverables. Unavailable or invalid requested expirations return an error instead of silently selecting another date. Pull to refresh reloads the available expirations.
+
 Holdings in the paper account and stock positions in Webull open the same quote page. Coinbase balances are valued in USD from the same provider's crypto prices, with an estimated total and each asset's 24-hour change; assets without a price stay in units.
 
 ## Price alerts

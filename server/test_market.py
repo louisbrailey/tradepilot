@@ -373,8 +373,8 @@ class CryptoTests(unittest.TestCase):
 
 
 def option_row(kind, strike, expiration="2026-11-13", bid=1.0, ask=1.2, underlying=342.79):
-    code = f"O:AAPL261113{'C' if kind == 'call' else 'P'}{int(strike * 1000):08d}"
-    return {"details": {"contract_type": kind, "strike_price": strike, "expiration_date": expiration, "ticker": code},
+    code = f"O:AAPL{expiration.replace('-', '')[2:]}{'C' if kind == 'call' else 'P'}{int(strike * 1000):08d}"
+    return {"details": {"contract_type": kind, "strike_price": strike, "expiration_date": expiration, "ticker": code, "shares_per_contract": 100},
             "last_quote": {"bid": bid, "ask": ask, "last_updated": int(FRIDAY_2PM * 1e9)},
             "last_trade": {"price": (bid + ask) / 2, "sip_timestamp": int((FRIDAY_2PM - 5) * 1e9)},
             "greeks": {"delta": 0.5 if kind == "call" else -0.5, "gamma": 0.05, "theta": -0.6, "vega": 0.1},
@@ -385,6 +385,7 @@ def option_row(kind, strike, expiration="2026-11-13", bid=1.0, ask=1.2, underlyi
 class OptionsTests(unittest.TestCase):
     def provider(self, chain_pages):
         contracts = {"results": [{"expiration_date": day} for day in ("2026-11-13", "2026-11-09", "2026-11-13", "2026-11-20", "bad")]}
+        contracts["results"].extend(row["details"] for page in chain_pages for row in page.get("results", []))
         routes = {"/v3/reference/options/contracts": contracts}
         pages = iter(chain_pages)
         routes["/v3/snapshot/options/AAPL"] = lambda path, params: next(pages)
@@ -432,6 +433,78 @@ class OptionsTests(unittest.TestCase):
         provider = FakeProvider({"/v3/reference/options/contracts": {"results": []}})
         result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "BRK.A"})
         self.assertEqual((result["expirations"], result["strikes"], result["expiration"]), ([], [], None))
+
+    def test_page_limit_does_not_fetch_a_page_that_will_be_discarded(self):
+        path = "/v3/reference/options/contracts"
+        provider = FakeProvider({path: {"results": [{"expiration_date": "2026-11-13"}],
+                                       "next_url": "https://api.massive.com" + path + "?cursor=unused"}})
+        result = MarketService(provider)._paged(path, {}, 3600, pages=1)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(provider.calls), 1)
+
+    def test_invalid_or_unavailable_expiration_is_never_replaced_by_another(self):
+        for expiration in ("2026-99-99", "2026-02-30", "2026-11-12"):
+            with self.subTest(expiration=expiration):
+                provider = self.provider([{"results": []}])
+                with self.assertRaises(MarketRequestError):
+                    MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL", "expiration": expiration})
+                self.assertFalse(any("/snapshot/" in path for path, _ in provider.calls))
+
+    def test_adjusted_and_standard_contracts_at_one_strike_are_kept_separate(self):
+        standard, adjusted = option_row("call", 340), option_row("call", 340)
+        adjusted["details"].update(ticker=adjusted["details"]["ticker"].replace("AAPL", "AAPL1"), shares_per_contract=10)
+        provider = self.provider([{"results": [standard, adjusted, option_row("put", 340)]}])
+        result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL", "expiration": "2026-11-13"})
+        self.assertEqual([row["series"] for row in result["strikes"]], ["AAPL", "AAPL1"])
+        first, second = result["strikes"]
+        self.assertTrue(first["call"]["standard_contract"])
+        self.assertIsNotNone(first["put"])
+        self.assertFalse(second["call"]["standard_contract"])
+        self.assertEqual(second["call"]["shares_per_contract"], 10)
+        self.assertIsNone(second["put"])
+
+    def test_contracts_with_extra_deliverables_are_not_priced_as_standard(self):
+        row = option_row("call", 340)
+        provider = self.provider([{"results": [row]}])
+        provider.routes["/v3/reference/options/contracts"]["results"][-1] = dict(row["details"], additional_underlyings=[{"type": "cash", "amount": 12}])
+        result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL", "expiration": "2026-11-13"})
+        self.assertFalse(result["strikes"][0]["call"]["standard_contract"])
+
+    def test_unknown_contract_size_and_missing_activity_remain_unknown(self):
+        row = option_row("call", 340)
+        row["details"].pop("shares_per_contract")
+        row.pop("open_interest")
+        row["day"]["volume"] = -1
+        provider = self.provider([{"results": [row]}])
+        result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL", "expiration": "2026-11-13"})
+        contract = result["strikes"][0]["call"]
+        self.assertIsNone(contract["standard_contract"])
+        self.assertIsNone(contract["shares_per_contract"])
+        self.assertIsNone(contract["volume"])
+        self.assertIsNone(contract["open_interest"])
+
+    def test_contract_identity_must_agree_with_the_quoted_terms(self):
+        for field, value in (("contract_type", "put"), ("strike_price", 345), ("expiration_date", "2026-11-20")):
+            row = option_row("call", 340)
+            row["details"][field] = value
+            with self.subTest(field=field):
+                self.assertIsNone(market.option_quote(row))
+
+    def test_conflicting_contract_sizes_do_not_produce_a_standard_premium(self):
+        row = option_row("call", 340)
+        reference = dict(row["details"], shares_per_contract=10)
+        contract = market.option_quote(row, reference)
+        self.assertIsNone(contract["shares_per_contract"])
+        self.assertIsNone(contract["standard_contract"])
+
+    def test_malformed_contract_identifiers_are_ignored(self):
+        for identifier in ([], {}, None):
+            with self.subTest(identifier=identifier):
+                row = option_row("call", 340)
+                row["details"]["ticker"] = identifier
+                provider = self.provider([{"results": [row]}])
+                result = MarketService(provider, clock=lambda: FRIDAY_2PM).options({"symbol": "AAPL", "expiration": "2026-11-13"})
+                self.assertEqual(result["strikes"], [])
 
 
 class CacheAndClientTests(unittest.TestCase):

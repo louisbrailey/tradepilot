@@ -143,6 +143,38 @@ for configured in ["true", "false"] {
 }
 print("PASS Coinbase setup status with legacy-gateway compatibility")
 
+// A selected expiration and the contract deliverables must survive decoding together.
+let standardOptionFields: [String: Any] = ["contract": "O:AAPL261113C00340000", "series": "AAPL", "type": "call",
+    "strike": 340, "bid": 1, "ask": 1.2, "shares_per_contract": 100, "standard_contract": true]
+func optionContract(_ fields: [String: Any]) throws -> OptionContract {
+    try JSONDecoder().decode(OptionContract.self, from: JSONSerialization.data(withJSONObject: fields))
+}
+func optionChain(_ rows: [[String: Any]]) throws -> OptionChain {
+    let fields: [String: Any] = ["symbol": "AAPL", "expirations": ["2026-11-13", "2026-11-20"], "expiration": "2026-11-13",
+        "strikes": rows, "as_of": 1000]
+    return try JSONDecoder().decode(OptionChain.self, from: JSONSerialization.data(withJSONObject: fields))
+}
+let standardOption = try optionContract(standardOptionFields)
+precondition(abs(standardOption.estimatedPremium! - 110) < 0.0001)
+var adjustedOptionFields = standardOptionFields
+adjustedOptionFields["contract"] = "O:AAPL1261113C00340000"; adjustedOptionFields["series"] = "AAPL1"
+adjustedOptionFields["shares_per_contract"] = 10; adjustedOptionFields["standard_contract"] = false
+let adjustedOption = try optionContract(adjustedOptionFields)
+precondition(adjustedOption.estimatedPremium == nil)
+var unknownOptionFields = standardOptionFields
+unknownOptionFields.removeValue(forKey: "shares_per_contract"); unknownOptionFields.removeValue(forKey: "standard_contract")
+let unknownOption = try optionContract(unknownOptionFields)
+precondition(unknownOption.estimatedPremium == nil)
+let standardStrike: [String: Any] = ["strike": 340, "series": "AAPL", "call": standardOptionFields]
+let adjustedStrike: [String: Any] = ["strike": 340, "series": "AAPL1", "call": adjustedOptionFields]
+let decodedChain = try optionChain([standardStrike, adjustedStrike])
+precondition(decodedChain.matches(symbol: "AAPL", expiration: "2026-11-13"))
+precondition(!decodedChain.matches(symbol: "AAPL", expiration: "2026-11-20"))
+precondition(!decodedChain.matches(symbol: "MSFT", expiration: nil))
+let duplicateChain = try optionChain([standardStrike, standardStrike])
+precondition(!duplicateChain.matches(symbol: "AAPL", expiration: nil))
+print("PASS option expiration binding, distinct adjusted contracts, and verified standard premium estimates")
+
 let signedEstimate = BrokerReview(id: review.id, confirmation_token: review.confirmation_token,
     environment: review.environment, account_id: review.account_id, order: review.order,
     estimated_cost: "-200", estimated_fee: "-0.01", expires_at: review.expires_at)
