@@ -40,7 +40,10 @@ class BaseHost(win32serviceutil.ServiceFramework):
         thread = threading.Thread(target=work, daemon=True)
         thread.start()
         self.stop.wait()
-        thread.join(60)
+        deadline = time.monotonic() + 60
+        while thread.is_alive() and time.monotonic() < deadline:
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING, waitHint=5000)
+            thread.join(1)
         if thread.is_alive() or errors:
             servicemanager.LogErrorMsg('TradePilot stopped: ' + (errors[0] if errors else 'shutdown timeout'))
             os._exit(1)  # OS closes job handle and kills the service's entire child tree.
@@ -71,7 +74,8 @@ class OllamaService(BaseHost):
         root = private_path(Path(r'C:/ProgramData/TradePilotOllama'), directory=True)
         executable = INSTALL / 'ollama/ollama.exe'
         env = {k: os.environ[k] for k in ('SystemRoot', 'WINDIR', 'PATH') if k in os.environ}
-        env.update(TEMP=str(root), TMP=str(root), OLLAMA_MODELS=str(root / 'models'),
+        env.update(USERPROFILE=str(root), TEMP=str(root), TMP=str(root), OLLAMA_MODELS=str(root / 'models'),
+                   CUDA_VISIBLE_DEVICES='-1', OLLAMA_VULKAN='0', GGML_VK_VISIBLE_DEVICES='-1',
                    OLLAMA_HOST='127.0.0.1:11434', OLLAMA_NO_CLOUD='1',
                    OLLAMA_NUM_PARALLEL='1', OLLAMA_MAX_LOADED_MODELS='1',
                    OLLAMA_MAX_QUEUE='1', OLLAMA_CONTEXT_LENGTH='8192', OLLAMA_KEEP_ALIVE='0')

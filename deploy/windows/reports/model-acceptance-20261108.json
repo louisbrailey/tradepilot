@@ -1,0 +1,206 @@
+{
+  "date": "2026-11-08",
+  "scope": "synthetic interactive-user acceptance, not service acceptance",
+  "hardware": "Ryzen 3700X, 32GiB RAM, RTX3070 8GiB; CPU explicitly selected",
+  "model": "qwen3.5:4b",
+  "ollama_version": "0.40.15",
+  "digest": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04",
+  "fixtures": [
+    {
+      "prompt": "sell 3 AAPL",
+      "seconds": 12.356,
+      "pass": true,
+      "reply": {
+        "kind": "trade",
+        "message": "Sell 3 shares of AAPL.",
+        "side": "sell",
+        "quantity": "3",
+        "symbol": "AAPL"
+      },
+      "keep_alive": "0"
+    },
+    {
+      "prompt": "buy 1.5 MSFT",
+      "seconds": 12.983,
+      "pass": true,
+      "reply": {
+        "kind": "trade",
+        "message": "Buy 1.5 shares of MSFT",
+        "side": "buy",
+        "quantity": "1.5",
+        "symbol": "MSFT"
+      },
+      "keep_alive": "0"
+    },
+    {
+      "prompt": "Do not sell 3 AAPL",
+      "seconds": 14.148,
+      "pass": true,
+      "reply": {
+        "kind": "message",
+        "message": "I cannot sell your AAPL shares. You currently hold 10 shares of AAPL, and I am instructed not to sell them.",
+        "side": null,
+        "quantity": null,
+        "symbol": null
+      },
+      "keep_alive": "0"
+    }
+  ],
+  "warm_probe": [
+    {
+      "seconds": 12.512,
+      "reply": {
+        "kind": "trade",
+        "message": "Sell 3 shares of AAPL.",
+        "side": "sell",
+        "quantity": "3",
+        "symbol": "AAPL"
+      },
+      "loaded_models": [
+        {
+          "name": "qwen3.5:4b",
+          "model": "qwen3.5:4b",
+          "size": 3376404232,
+          "digest": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen35",
+            "families": [
+              "qwen35"
+            ],
+            "parameter_size": "4.2B",
+            "quantization_level": "Q4_K_M"
+          },
+          "expires_at": "2026-11-08T12:25:54.3654047-08:00",
+          "size_vram": 0,
+          "context_length": 8192,
+          "runner": "llamacpp"
+        }
+      ]
+    },
+    {
+      "seconds": 3.693,
+      "reply": {
+        "kind": "trade",
+        "message": "Sell 3 shares of AAPL.",
+        "side": "sell",
+        "quantity": "3",
+        "symbol": "AAPL"
+      },
+      "loaded_models": [
+        {
+          "name": "qwen3.5:4b",
+          "model": "qwen3.5:4b",
+          "size": 3376404232,
+          "digest": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen35",
+            "families": [
+              "qwen35"
+            ],
+            "parameter_size": "4.2B",
+            "quantization_level": "Q4_K_M"
+          },
+          "expires_at": "2026-11-08T12:25:58.0590256-08:00",
+          "size_vram": 0,
+          "context_length": 8192,
+          "runner": "llamacpp"
+        }
+      ]
+    }
+  ],
+  "ollama_unloaded": true,
+  "kronos_5": {
+    "seconds": 6.296,
+    "samples": 3,
+    "device": "cpu",
+    "passed": true
+  },
+  "kronos_20": {
+    "scope": "synthetic offline CPU Kronos, interactive user",
+    "horizons": [
+      {
+        "horizon": 20,
+        "seconds": 9.056,
+        "paths": [
+          [
+            112.70746612548828,
+            112.4320297241211,
+            112.96697235107422,
+            112.60535430908203,
+            113.1800765991211,
+            113.1339340209961,
+            112.63581085205078,
+            112.58235168457031,
+            112.89164733886719,
+            113.00828552246094,
+            112.4917221069336,
+            112.22657775878906,
+            111.98053741455078,
+            111.8629379272461,
+            111.79065704345703,
+            111.82423400878906,
+            111.9163589477539,
+            112.03085327148438,
+            112.06210327148438,
+            112.14594268798828
+          ],
+          [
+            112.98680877685547,
+            112.23020935058594,
+            112.45650482177734,
+            112.36248779296875,
+            112.14415740966797,
+            111.98953247070312,
+            112.36993408203125,
+            112.03633880615234,
+            111.88742065429688,
+            111.85749816894531,
+            111.90339660644531,
+            112.37651062011719,
+            112.52436828613281,
+            112.68659210205078,
+            112.94549560546875,
+            112.94550323486328,
+            112.64277648925781,
+            112.26869201660156,
+            112.18954467773438,
+            112.22427368164062
+          ],
+          [
+            113.03018951416016,
+            113.38233184814453,
+            113.12885284423828,
+            113.12186431884766,
+            113.57067108154297,
+            113.5999526977539,
+            113.59725189208984,
+            113.6657485961914,
+            113.52699279785156,
+            112.98994445800781,
+            112.67019653320312,
+            112.71680450439453,
+            112.78484344482422,
+            112.701904296875,
+            112.92334747314453,
+            112.5317611694336,
+            111.96170043945312,
+            111.67826080322266,
+            111.92457580566406,
+            112.30833435058594
+          ]
+        ]
+      }
+    ]
+  },
+  "failures_and_limits": [
+    "Automatic GPU cold inference exceeded unchanged90-second timeout. GPU candidate not accepted.",
+    "Initial empty-holdings positive sell fixture was refused; corrected fixture uses synthetic AAPL10/MSFT5 holdings.",
+    "Warm probes use keep_alive=5m for comparison only; production remains0.",
+    "Reported loaded-model size3376404232 and VRAM0 are resident values, not measured peak process RAM/VRAM.",
+    "Interactive-user acceptance does not establish virtual-service-account startup, memory-budget sufficiency or reboot readiness."
+  ]
+}

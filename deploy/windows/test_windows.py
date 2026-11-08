@@ -13,6 +13,9 @@ import unittest
 from unittest.mock import patch
 from unittest.mock import Mock
 import threading
+import time
+import zipfile
+import package_candidate
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'server'))
 import windows_runtime as wr
 import snapshots
@@ -69,6 +72,64 @@ class WindowsTests(unittest.TestCase):
                 wr.run_model([sys.executable, '-c', 'import time;time.sleep(30)'],
                              input='', timeout=.2, env=env, cwd=self.root)
 
+    def test_timeout_kills_grandchild(self):
+        import win32api, win32event
+        pid_file = self.root / 'grandchild.pid'
+        code = ('import subprocess,sys,time;from pathlib import Path;'
+                'p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(30)"]);'
+                f'Path({str(pid_file)!r}).write_text(str(p.pid));time.sleep(30)')
+        with patch.dict(os.environ, {'TRADEPILOT_RUNTIME':str(self.root)}):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                wr.run_model([sys.executable,'-c',code],input='',timeout=2,
+                             env=wr.child_environment(os.environ),cwd=self.root)
+        pid = int(pid_file.read_text())
+        try:
+            handle = win32api.OpenProcess(0x00100000, False, pid)
+        except Exception as error:
+            self.assertEqual(error.winerror, 87)  # PID no longer exists; not access denied.
+        else:
+            try: self.assertEqual(win32event.WaitForSingleObject(handle,5000),win32event.WAIT_OBJECT_0)
+            finally: handle.Close()
+
+    def test_output_limit_kills_sleeping_tree_promptly(self):
+        import win32api, win32event
+        pid_file = self.root / 'noisy-grandchild.pid'
+        code = ('import subprocess,sys,time;from pathlib import Path;'
+                'p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"]);'
+                f'Path({str(pid_file)!r}).write_text(str(p.pid));'
+                'sys.stdout.write("x"*2100000);sys.stdout.flush();time.sleep(60)')
+        started = time.monotonic()
+        with patch.dict(os.environ, {'TRADEPILOT_RUNTIME':str(self.root)}):
+            with self.assertRaisesRegex(ValueError, 'output exceeds'):
+                wr.run_model([sys.executable,'-c',code],input='',timeout=90,
+                             env=wr.child_environment(os.environ),cwd=self.root)
+        self.assertLess(time.monotonic()-started, 5)
+        self.assertEqual(list((self.root/'model-tmp').iterdir()), [])
+        try: handle = win32api.OpenProcess(0x00100000, False, int(pid_file.read_text()))
+        except Exception as error: self.assertEqual(error.winerror, 87)
+        else:
+            try: self.assertEqual(win32event.WaitForSingleObject(handle,1000),win32event.WAIT_OBJECT_0)
+            finally: handle.Close()
+
+    def test_packager_rejects_unreviewed_or_wrong_platform_wheels(self):
+        wheels = self.root/'wheels'
+        wheels.mkdir()
+        wheel = wheels/'fixture-1.0-py3-none-any.whl'
+        with zipfile.ZipFile(wheel,'w') as z:
+            z.writestr('fixture-1.0.dist-info/METADATA','Name: fixture\nVersion: 1.0\n')
+        lock = self.root/'reviewed.lock'
+        good = f'fixture==1.0 --hash=sha256:{package_candidate.sha(wheel)}\n'
+        lock.write_text(good)
+        self.assertEqual(len(package_candidate.reviewed_wheels(wheels,lock,14)),1)
+        for bad in (good.replace('==1.0','==2.0'), good.replace(package_candidate.sha(wheel),'0'*64),
+                    good+'missing==1.0 --hash=sha256:'+'0'*64+'\n',good.replace('fixture==','other==')):
+            lock.write_text(bad)
+            with self.assertRaises(ValueError): package_candidate.reviewed_wheels(wheels,lock,14)
+        lock.write_text(good)
+        wrong = wheels/'fixture-1.0-cp312-cp312-win_amd64.whl'
+        wheel.rename(wrong)
+        with self.assertRaisesRegex(ValueError,'incompatible'): package_candidate.reviewed_wheels(wheels,lock,14)
+
     def test_snapshot_restore_fence_hash_and_lock(self):
         private = wr.private_directory(self.root / 'private')
         runtime = wr.private_directory(private / 'runtime')
@@ -96,6 +157,21 @@ class WindowsTests(unittest.TestCase):
         lock.release()
         self.assertFalse(lock.acquire(False))
 
+    def test_transport_failure_poison_blocks_subsequent_model(self):
+        import server
+        lock = InferenceLock()
+        with patch.object(server, '_local_ai_lock', lock), patch.object(server, 'build_opener') as opener:
+            opener.return_value.open.side_effect = TimeoutError('synthetic timeout')
+            with self.assertRaises(TimeoutError):
+                server.local_ollama_request('/api/chat', {}, timeout=1)
+        self.assertFalse(lock.acquire(False))
+
+    def test_hardlink_private_file_rejected(self):
+        original = self.root / 'original'
+        original.write_text('synthetic')
+        os.link(original, self.root / 'alias')
+        with self.assertRaises(ValueError): wr.private_path(original)
+
     def test_missing_cutover_prevents_all_startup(self):
         with patch.object(gateway, 'remote_module') as remote:
             with self.assertRaises(ValueError):
@@ -103,6 +179,12 @@ class WindowsTests(unittest.TestCase):
             remote.assert_not_called()
 
     def test_gateway_shutdown_signals_both_workers_without_network(self):
+        self.check_gateway_shutdown(False)
+
+    def test_poison_triggers_drained_supervised_restart(self):
+        self.check_gateway_shutdown(True)
+
+    def check_gateway_shutdown(self, poisoned):
         import server
         private = wr.private_directory(self.root / 'private')
         (self.root / 'cutover-allow.json').write_text(json.dumps(
@@ -116,8 +198,10 @@ class WindowsTests(unittest.TestCase):
         remote, http = Mock(), Mock()
         remote.read_settings.return_value = {'address':'100.96.0.24'}
         def alerts(*args):
-            stopped.set()
+            if not poisoned: stopped.set()
             return alert_stop, alert
+        lock = InferenceLock()
+        if poisoned: lock.poison()
         with patch.object(gateway, 'remote_module', return_value=remote), \
              patch.object(gateway, 'tailscale_status', return_value={}), \
              patch.object(gateway, 'ollama_idle'), \
@@ -125,9 +209,13 @@ class WindowsTests(unittest.TestCase):
              patch.object(server, 'load_market_env'), patch.object(server, 'enable_tls'), \
              patch.object(server, 'GatewayHTTPServer', return_value=http), \
              patch.object(server, 'automation', return_value=Mock()), \
+             patch.object(server, '_local_ai_lock', lock), \
              patch.object(server, 'start_worker', return_value=(worker_stop,worker)), \
              patch.object(server, 'start_alert_worker', side_effect=alerts):
-            gateway.run(self.root, stopped, Path('unused'))
+            if poisoned:
+                with self.assertRaisesRegex(RuntimeError,'supervised restart'):
+                    gateway.run(self.root, stopped, Path('unused'))
+            else: gateway.run(self.root, stopped, Path('unused'))
         self.assertTrue(worker_stop.is_set())
         self.assertTrue(alert_stop.is_set())
         http.shutdown.assert_called_once()

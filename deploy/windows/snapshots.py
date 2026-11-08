@@ -44,6 +44,10 @@ def backup(root):
                     if dst.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                         raise ValueError('Snapshot integrity failure')
             private_path(target)
+            # Flush each completed member before publishing the completion marker.
+            import os
+            with target.open('r+b') as stream:
+                os.fsync(stream.fileno())
             records[source.name] = digest(target)
         manifest = out / 'complete.tmp'
         with manifest.open('x', encoding='utf-8') as stream:

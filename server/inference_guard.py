@@ -21,6 +21,9 @@ class InferenceLock:
     def poison(self):
         self._poisoned = True
 
+    def poisoned(self):
+        return self._poisoned
+
     def locked(self):
         return self._lock.locked()
 

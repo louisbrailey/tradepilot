@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import uuid
 import shutil
+import time
 
 
 def _api():
@@ -159,10 +160,17 @@ def run_model(argv, *, input, timeout, env, cwd, **unused):
                 env, str(cwd), startup)
             win32job.AssignProcessToJobObject(job, process)
             win32process.ResumeThread(thread)
-            if win32event.WaitForSingleObject(process, int(timeout * 1000)) != win32event.WAIT_OBJECT_0:
-                win32job.TerminateJobObject(job, 124)
-                win32event.WaitForSingleObject(process, 5000)
-                raise subprocess.TimeoutExpired(argv, timeout)
+            deadline = time.monotonic() + timeout
+            while True:
+                # Check while the writer is alive, not only after its deadline.
+                # Polling permits one sampling interval of overshoot; not a disk quota.
+                if any(win32file.GetFileSize(h) > 2_000_000 for h in handles[1:]):
+                    raise ValueError('Model output exceeds limit')
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(argv, timeout)
+                if win32event.WaitForSingleObject(process, max(1, min(50, int(remaining * 1000)))) == win32event.WAIT_OBJECT_0:
+                    break
             code = win32process.GetExitCodeProcess(process)
         finally:
             if process is not None:

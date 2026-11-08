@@ -86,17 +86,26 @@ def run(root, stopped, tailscale):
             workers.append(server.start_worker(server.automation()))
             workers.append(server.start_alert_worker(server.alerts, server.market_data))
             while not stopped.wait(5):
+                if server._local_ai_lock.poisoned():
+                    # Drain workers and fail this service instance. SCM recovery
+                    # re-enters ollama_idle before any replacement worker starts.
+                    raise RuntimeError('Inference transport requires supervised restart')
                 activation(root)
                 # Preserve fail-closed identity/config validation during operation.
                 remote.command(root, tailscale_status(tailscale))
         finally:
             for event, _ in workers: event.set()
-            http.shutdown()
             deadline = time.monotonic() + 55
+            # ThreadingHTTPServer.server_close can wait forever on a stuck request.
+            # Keep internal failure/poison drains bounded as well as SCM stop drains.
+            def close_http():
+                http.shutdown()
+                http.server_close()
+            closing = threading.Thread(target=close_http, name='gateway-drain', daemon=True)
+            closing.start()
             for _, thread in workers:
                 thread.join(max(0, deadline - time.monotonic()))
-            # Request threads are non-daemon; SCM wrapper enforces final stop deadline.
-            http.server_close()
+            closing.join(max(0, deadline - time.monotonic()))
             serving.join(max(0, deadline - time.monotonic()))
-            if any(thread.is_alive() for _, thread in workers):
+            if closing.is_alive() or serving.is_alive() or any(thread.is_alive() for _, thread in workers):
                 raise RuntimeError('Worker did not stop before deadline')

@@ -7,6 +7,7 @@ import argparse
 from email.parser import BytesParser
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -24,8 +25,56 @@ def sha(p):
     with p.open('rb') as f: return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
+def reviewed_wheels(directory, lock, minor):
+    """Require exactly one reviewed wheel per pin for CPython/Windows x86_64."""
+    normalize = lambda name: re.sub(r'[-_.]+', '-', name).lower()
+    pins = {}
+    joined = lock.read_text().replace('\\\n', ' ')
+    for line in joined.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'): continue
+        match = re.fullmatch(r'([A-Za-z0-9_.-]+)==([^\s;]+)\s+((?:--hash=sha256:[0-9a-f]{64}\s*)+)', line)
+        if not match: raise ValueError('Unsupported reviewed lock entry')
+        name = normalize(match[1])
+        if name in pins: raise ValueError('Duplicate reviewed pin')
+        pins[name] = (match[2], set(re.findall(r'sha256:([0-9a-f]{64})', match[3])))
+    result, seen = [], set()
+    for p in sorted(directory.iterdir()):
+        if p.suffix != '.whl' or not p.is_file() or p.is_symlink():
+            raise ValueError('Wheelhouse must contain only ordinary wheels')
+        fields = p.stem.split('-')
+        if len(fields) not in (5, 6): raise ValueError('Invalid wheel filename')
+        name, version = normalize(fields[0]), fields[1]
+        if name in seen or name not in pins: raise ValueError('Duplicate or extra wheel')
+        if version != pins[name][0] or sha(p) not in pins[name][1]:
+            raise ValueError('Wheel version/hash differs from reviewed lock')
+        python, abi, platform = fields[-3:]
+        compatible = False
+        for py in python.split('.'):
+            for tag in abi.split('.'):
+                for target in platform.split('.'):
+                    if target not in ('any', 'win_amd64'): continue
+                    pure = py in ('py3', f'py3{minor}') and tag == 'none'
+                    native = py == f'cp3{minor}' and tag in (f'cp3{minor}', 'none') and target == 'win_amd64'
+                    stable = re.fullmatch(r'cp3\d+', py) and 2 <= int(py[3:]) <= minor and tag == 'abi3' and target == 'win_amd64'
+                    compatible |= bool(pure or native or stable)
+        if not compatible: raise ValueError('Wheel incompatible with reviewed CPython/Windows target')
+        with zipfile.ZipFile(p) as z:
+            names = [n for n in z.namelist() if n.endswith('.dist-info/METADATA')]
+            if len(names) != 1: raise ValueError('Ambiguous wheel metadata')
+            metadata = BytesParser().parsebytes(z.read(names[0]))
+        if normalize(metadata['Name']) != name or metadata['Version'] != version:
+            raise ValueError('Wheel metadata/filename mismatch')
+        seen.add(name)
+        result.append((p, f"{name}=={version} --hash=sha256:{sha(p)}"))
+    if not pins or seen != set(pins): raise ValueError('Missing reviewed wheels')
+    return result
+
+
 def package(source, wheels, ollama, output, kronos_source, kronos_wheels):
     if output.exists(): raise ValueError('Use a new bundle destination')
+    gateway_wheels = reviewed_wheels(wheels, source / 'deploy/windows/requirements.lock', 14)
+    model_wheels = reviewed_wheels(kronos_wheels, source / 'deploy/windows/kronos.lock', 12)
     for name, expected in FROZEN.items():
         if sha(source / 'server' / name) != expected: raise ValueError('Frozen bytes changed')
     # Only code/deployment assets, not repository history or runtime folders.
@@ -39,12 +88,8 @@ def package(source, wheels, ollama, output, kronos_source, kronos_wheels):
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(p, dest)
     requirements = []
-    for p in sorted(wheels.glob('*.whl')):
-        with zipfile.ZipFile(p) as z:
-            names = [n for n in z.namelist() if n.endswith('.dist-info/METADATA')]
-            if len(names) != 1: raise ValueError('Ambiguous wheel metadata')
-            metadata = BytesParser().parsebytes(z.read(names[0]))
-        requirements.append(f"{metadata['Name']}=={metadata['Version']} --hash=sha256:{sha(p)}")
+    for p, requirement in gateway_wheels:
+        requirements.append(requirement)
         dest = output / 'wheelhouse' / p.name
         dest.parent.mkdir(exist_ok=True)
         shutil.copyfile(p, dest)
@@ -60,12 +105,8 @@ def package(source, wheels, ollama, output, kronos_source, kronos_wheels):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(subprocess.check_output(['git', '-C', str(kronos_source), 'show', kronos_pin + ':' + name]))
     model_requirements = []
-    for p in sorted(kronos_wheels.glob('*.whl')):
-        with zipfile.ZipFile(p) as z:
-            metadata_names = [n for n in z.namelist() if n.endswith('.dist-info/METADATA')]
-            if len(metadata_names) != 1: raise ValueError('Ambiguous model wheel')
-            metadata = BytesParser().parsebytes(z.read(metadata_names[0]))
-        model_requirements.append(f"{metadata['Name']}=={metadata['Version']} --hash=sha256:{sha(p)}")
+    for p, requirement in model_wheels:
+        model_requirements.append(requirement)
         dest = output / 'kronos-wheelhouse' / p.name
         dest.parent.mkdir(exist_ok=True)
         shutil.copyfile(p, dest)
