@@ -230,6 +230,10 @@ struct AutomatedPaperStart: Encodable, Sendable {
 struct AutomatedPaperProtocol: Decodable, Sendable {
     let version: String; let rule: String; let schedule: String
     let initial_cash: String; let entry_fraction: String; let max_entry: String; let cost_bps: Int
+    var entryPercent: String {
+        guard let fraction = strictDecimal(entry_fraction, allowNegative: false) else { return "—" }
+        return percent(NSDecimalNumber(decimal: fraction * 100).doubleValue, digits: 0)
+    }
 }
 struct AutomatedPaperDecision: Decodable, Sendable {
     let long: Bool; let session: String; let recorded_at: Double; let budget: String
@@ -264,8 +268,8 @@ struct AutomatedPaperRun: Decodable, Sendable, Identifiable {
         }
     }
     var drawdownPercent: String {
-        guard let value = PaperValidation.decimal(max_drawdown) else { return "Unavailable" }
-        return NSDecimalNumber(decimal: value * 100).stringValue + "%"
+        guard let value = strictDecimal(max_drawdown, allowNegative: false) else { return "Unavailable" }
+        return percent(NSDecimalNumber(decimal: value * 100).doubleValue)
     }
 }
 struct AutomatedPaperSnapshot: Decodable, Sendable {
@@ -918,7 +922,7 @@ struct AutomatedPaperView: View {
             HStack { StatusBadge("Paper", tone: .paper); Spacer(); if busy { ProgressView() } }
             if let snapshot {
                 let proto = snapshot.runs.first?.protocol
-                SectionCard(footer: proto.map { "Each strategy starts with \(workspaceMoney($0.initial_cash)) of paper money, buys at most \($0.entry_fraction) of equity or \(workspaceMoney($0.max_entry)) per entry, and pays \($0.cost_bps) bps per side." } ?? "Three rule-based strategies trade SPY with separate paper balances.") {
+                SectionCard(footer: proto.map { "Each strategy starts with \(workspaceMoney($0.initial_cash)) of paper money, buys at most \($0.entryPercent) of equity or \(workspaceMoney($0.max_entry)) per entry, and pays \($0.cost_bps) bps per side." } ?? "Three rule-based strategies trade SPY with separate paper balances.") {
                     schedulerRow(snapshot)
                     HStack(spacing: Spacing.l) {
                         MetricTile(label: "Active", value: "\(snapshot.runs.filter { $0.active }.count) of \(snapshot.runs.count)")
@@ -936,19 +940,19 @@ struct AutomatedPaperView: View {
                 ForEach(snapshot.runs) { run in
                     SectionCard {
                         HStack { Text(run.title).font(.headline); Spacer(); StatusBadge(run.statusLabel, tone: run.active ? .positive : .warning) }
-                        HStack(spacing: Spacing.l) {
+                        MetricsGrid {
                             MetricTile(label: "Value", value: workspaceMoney(run.equity))
-                            MetricTile(label: "Realised", value: workspaceMoney(run.realized, signed: true), tone: deltaTone(run.realized))
+                            MetricTile(label: "Realized P/L", value: workspaceMoney(run.realized, signed: true), tone: deltaTone(run.realized))
                             MetricTile(label: "Drawdown", value: run.drawdownPercent)
                         }
-                        Text("\(run.observations) sessions · \(run.fills) fills · \(run.quantity) shares").font(.caption).foregroundStyle(Theme.textSecondary)
+                        Text("\(run.observations) \(run.observations == 1 ? "session" : "sessions") · \(run.fills) \(run.fills == 1 ? "fill" : "fills") · \(run.quantity) shares").font(.caption).foregroundStyle(Theme.textSecondary)
                         NavigationLink { AutomatedPaperRunDetail(run: run, stop: run.active ? { Task { await request("pause", body: ["id": run.id]) } } : nil) } label: {
                             Text("Details").font(.footnote.weight(.semibold))
                         }
                     }
                 }
                 if snapshot.runs.isEmpty { EmptyState(title: "Nothing running", message: "Start the three strategies to begin recording forward paper results.", icon: "clock.arrow.circlepath") }
-                Footnote("Signals are computed after 8:15 PM New York time and filled at the next session’s open. Your Mac must stay on; this phone can be closed. Stopping keeps recorded holdings without new marks and does not sell them.")
+                Footnote("Signals are computed after 8:15 PM New York time and filled at the next session’s open. Your server must stay on; this phone can be closed. Stopping keeps recorded holdings without new marks and does not sell them.")
             } else if !busy {
                 EmptyState(title: "Not loaded", message: "Pull down to load the strategies.", icon: "arrow.down")
             }
@@ -975,7 +979,7 @@ struct AutomatedPaperView: View {
                 StatusBadge(stale ? "Scheduler not running" : "Scheduler running", tone: stale ? .warning : .positive)
                 Text("checked \(relativeTime(heartbeat))").font(.caption).foregroundStyle(Theme.textTertiary)
             }
-            if stale { InlineNotice(kind: .warning, message: "Your Mac may be asleep or the gateway stopped. No new decisions are recorded until it runs again.") }
+            if stale { InlineNotice(kind: .warning, message: "Your server may be asleep or stopped. No new decisions are recorded until it runs again.") }
         } else {
             StatusBadge("Scheduler has not run", tone: .warning)
         }
@@ -1018,8 +1022,8 @@ struct AutomatedPaperRunDetail: View {
                 DetailRow("Value", workspaceMoney(run.equity))
                 DetailRow("Cash", workspaceMoney(run.cash))
                 DetailRow("Shares", run.quantity)
-                DetailRow("Realised", workspaceMoney(run.realized, signed: true))
-                DetailRow("Modelled costs", workspaceMoney(run.costs))
+                DetailRow("Realized P/L", workspaceMoney(run.realized, signed: true))
+                DetailRow("Modeled costs", workspaceMoney(run.costs))
                 DetailRow("Max drawdown", run.drawdownPercent)
                 if let pending = run.pending {
                     DetailRow("Next decision", "\(pending.long ? "Long" : "Cash") for \(pending.session)")

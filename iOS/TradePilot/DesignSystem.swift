@@ -206,7 +206,8 @@ struct MetricTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             Eyebrow(label)
-            Text(value).font(.title3.weight(.semibold)).monospacedDigit().fixedSize(horizontal: false, vertical: true)
+            Text(value).font(.title3.weight(.semibold)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.8)
                 .foregroundStyle(tone?.color ?? Theme.textPrimary)
             if let caption { Text(caption).font(.caption).foregroundStyle(Theme.textTertiary) }
         }
@@ -219,7 +220,7 @@ struct MetricsGrid<Content: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ViewBuilder var content: Content
     var body: some View {
-        let columns = typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 108), spacing: Spacing.l)]
+        let columns = typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 140), spacing: Spacing.l)]
         LazyVGrid(columns: columns, alignment: .leading, spacing: Spacing.m) { content }
     }
 }

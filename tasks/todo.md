@@ -19,12 +19,14 @@
 - [x] Deploy 0.5.0 gateway code to the Mac with `scripts/update-local-gateway.py apply` (owner-approved; backup `code-backup-update-20261106-200945`; health check passed).
 - [x] Install 0.5.0 (build 6) on the USB iPhone 16 (devicectl confirms the version).
 - [x] iOS 27.2 setup finished on the iPhone; TradePilot 0.5.0 launched there on November 7, 15:07 PT (iOS accepts the signing), and its Home, Markets card and tab bar rendered on the device, with the unreachable server handled.
-- [ ] With the Mac and iPhone on the same Wi-Fi, open TradePilot on the phone and check Markets, a quote page, an alert notification and Coinbase values on the device.
+- [x] Physical-phone Markets, watchlist and quote chart verified November 8 after repairing the stale paired hostname.
+- [ ] Verify an alert notification and Coinbase USD values on the physical phone. Existing simulator/gateway checks do not establish these device results.
 - [ ] Sign in to Xcode (Settings → Accounts) with the Apple ID for team ANWNGW59GP so `com.tradepilot.keep-signed` can renew signing before November 11, 00:35 PT.
 - [x] Deploy the Coinbase USD pricing route (`/v1/market/crypto`) with `scripts/update-local-gateway.py apply` (owner-approved; deployed November 7, 14:57 PT).
 - [x] Review and finish the read-only options chain (0.5.1): expiration binding, pagination, distinct adjusted series, contract terms, missing activity and simulator checks. Signed build 7 is installed on the USB phone.
 - [x] Deploy and verify the 0.5.1 options review fixes on the Mac gateway (November 8, 10:41 PT; pinned health and options checks passed; paper state preserved).
-- [ ] Verify a fresh launch and options data on the physical phone after it is unlocked.
+- [x] Fresh physical launch and live options verified November 8: calls/puts, contract terms/premium/timestamp and expiration changes.
+- [ ] Finish the 0.5.2 strategy-display visual check after the Mac is unlocked (signed build 8 is installed and launched).
 - [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy.
 - [ ] Stage and verify the gateway on the home PC, then move the active ledger and pair the iPhone. See [home PC setup](../HOME-PC.md).
 
