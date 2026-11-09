@@ -30,7 +30,7 @@ class BaseHost(win32serviceutil.ServiceFramework):
         self.stop.set()
 
     def SvcDoRun(self):
-        budget = {'TradePilot': 3 * 1024**3, 'TradePilotOllama': 5 * 1024**3,
+        budget = {'TradePilot': 3 * 1024**3, 'TradePilotOllama': 8 * 1024**3,
                   'TradePilotNetworkStatus': 256 * 1024**2}[self._svc_name_]
         job = kill_job(budget)
         win32job.AssignProcessToJobObject(job, win32api.GetCurrentProcess())
@@ -118,7 +118,7 @@ class OllamaService(BaseHost):
         def memory_receipt(final=False):
             info=win32job.QueryInformationJobObject(self.job,win32job.JobObjectExtendedLimitInformation)
             record={'service':'TradePilotOllama','host_pid':os.getpid(),'child_pid':child.pid,
-                    'peak_job_committed_bytes':info['PeakJobMemoryUsed'], 'job_limit_bytes':5*1024**3,
+                    'peak_job_committed_bytes':info['PeakJobMemoryUsed'], 'job_limit_bytes':8*1024**3,
                     'cpu_only':True,'timestamp':time.time(),'final':final}
             temp=root/'memory-status.tmp'; temp.write_text(json.dumps(record)+'\n'); temp.replace(root/'memory-status.json')
         try:
