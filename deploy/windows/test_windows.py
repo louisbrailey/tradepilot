@@ -157,13 +157,16 @@ class WindowsTests(unittest.TestCase):
         runtime = wr.private_directory(private / 'runtime')
         (private / 'config.json').write_text(json.dumps({'GATEWAY_DISABLED': 'enabled'}))
         with closing(sqlite3.connect(runtime / 'paper.sqlite3')) as db:
+            db.execute('PRAGMA journal_mode=WAL')
             db.execute('create table fixture(value)')
             db.execute('insert into fixture values (42)')
             db.commit()
         with wr.exclusive_runtime(private):
             with self.assertRaises(Exception): snapshots.backup(self.root)
         out = snapshots.backup(self.root)
+        completed = {p.name: snapshots.digest(p) for p in out.iterdir()}
         restored = snapshots.restore(self.root, out, self.root / 'restore')
+        self.assertEqual({p.name: snapshots.digest(p) for p in out.iterdir()}, completed)
         with closing(sqlite3.connect(restored / 'paper.sqlite3')) as db:
             self.assertEqual(db.execute('select value from fixture').fetchone(), (42,))
         with self.assertRaises(ValueError): snapshots.restore(self.root, out, restored)

@@ -141,7 +141,9 @@ def restore(root, snapshot, destination):
         out = private_directory(destination)
         for name in record['databases']:
             source = snapshot / name
-            with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as src:
+            # Completed snapshots are checkpointed and hash-bound. Opening a
+            # WAL-mode image without immutable=1 can create source sidecars.
+            with closing(sqlite3.connect(source.as_uri() + '?mode=ro&immutable=1', uri=True)) as src:
                 with closing(sqlite3.connect(out / name)) as dst:
                     src.backup(dst)
                     if dst.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
