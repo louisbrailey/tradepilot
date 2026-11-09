@@ -1,10 +1,12 @@
 """Synthetic acceptance inside the installed GatewayService, never production start."""
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 import ctypes
 from ctypes import wintypes
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import sqlite3
@@ -38,40 +40,116 @@ def service_identity():
     return win32security.ConvertSidToStringSid(sid)
 
 
-def ollama_service_listener():
-    """Prove local port belongs to a descendant of the running SCM Ollama host."""
-    import pythoncom, win32com.client, win32service
+def tcp_owners():
+    """Read endpoint ownership, without relying on this host's unstable state enum."""
+    class Row(ctypes.Structure):
+        _fields_=[(x,wintypes.DWORD) for x in ('state','local_addr','local_port','remote_addr','remote_port','pid')]
+    get=ctypes.WinDLL('iphlpapi').GetExtendedTcpTable
+    get.argtypes=[ctypes.c_void_p,ctypes.POINTER(wintypes.ULONG),wintypes.BOOL,wintypes.ULONG,wintypes.ULONG,wintypes.ULONG]
+    get.restype=wintypes.DWORD
+    size=wintypes.ULONG(0)
+    for _ in range(3):
+        buffer=ctypes.create_string_buffer(size.value) if size.value else None
+        code=get(buffer,ctypes.byref(size),False,socket.AF_INET,5,0)
+        if code==122:
+            if not 4<=size.value<=16*1024**2: raise ValueError('Invalid TCP owner table size')
+            continue
+        if code or buffer is None: raise ValueError('Cannot read TCP owner table')
+        count=wintypes.DWORD.from_buffer(buffer).value
+        if ctypes.sizeof(wintypes.DWORD)+count*ctypes.sizeof(Row)>len(buffer):
+            raise ValueError('Truncated TCP owner table')
+        rows=(Row*count).from_buffer(buffer,ctypes.sizeof(wintypes.DWORD))
+        def endpoint(address,port):
+            return socket.inet_ntoa(int(address).to_bytes(4,'little')),socket.ntohs(port&65535)
+        return [(endpoint(r.local_addr,r.local_port),endpoint(r.remote_addr,r.remote_port),int(r.pid)) for r in rows]
+    raise ValueError('TCP owner table changed repeatedly')
+
+
+def connected_owner(rows, local, remote, client_pid):
+    """Both directions must identify one currently held connection, not a stale listener."""
+    clients=[pid for a,b,pid in rows if a==local and b==remote]
+    servers=[pid for a,b,pid in rows if a==remote and b==local]
+    if clients!=[client_pid] or len(servers)!=1 or servers[0]<=0 or servers[0]==client_pid:
+        raise ValueError('Connected model endpoint ownership is unverified')
+    return servers[0]
+
+
+def process_snapshot():
+    import pythoncom, win32com.client
+    pythoncom.CoInitialize()
+    objects=provider=process=None
+    try:
+        provider=win32com.client.GetObject('winmgmts:')
+        objects=provider.ExecQuery('SELECT ProcessId,ParentProcessId,CreationDate,Name FROM Win32_Process')
+        return {int(process.ProcessId):(int(process.ParentProcessId),str(process.CreationDate or ''),str(process.Name or '').lower()) for process in objects}
+    finally:
+        process=objects=provider=None
+        pythoncom.CoUninitialize()
+
+
+def created_at(value):
+    if not re.fullmatch(r'[0-9]{14}\.[0-9]{6}[+-][0-9]{3}',value):
+        raise ValueError('Process creation identity is unavailable')
+    stamp=datetime.strptime(value[:21],'%Y%m%d%H%M%S.%f')
+    return stamp.replace(tzinfo=timezone(timedelta(minutes=int(value[21:])))).astimezone(timezone.utc)
+
+
+def stable_descendant(before, after, host, server):
+    if host==server or before.get(host)!=after.get(host) or host not in before:
+        raise ValueError('Model service process changed')
+    if before[host][2]!='pythonservice.exe' or before.get(server,('', '', ''))[2]!='ollama.exe':
+        raise ValueError('Unexpected service process names')
+    pid=server;seen=set()
+    for _ in range(8):
+        if pid in seen or pid not in before or before[pid]!=after.get(pid):
+            raise ValueError('Model process identity changed')
+        seen.add(pid)
+        if pid==host:return
+        parent=before[pid][0]
+        if parent not in before or created_at(before[pid][1])<created_at(before[parent][1]):
+            raise ValueError('Unverified model process ancestry')
+        pid=parent
+    raise ValueError('Port is not owned by the dedicated model service')
+
+
+def ollama_service_pid():
+    import win32service
     manager=win32service.OpenSCManager(None,None,win32service.SC_MANAGER_CONNECT)
     try:
         service=win32service.OpenService(manager,'TradePilotOllama',win32service.SERVICE_QUERY_STATUS)
         try: status=win32service.QueryServiceStatusEx(service)
         finally: win32service.CloseServiceHandle(service)
     finally: win32service.CloseServiceHandle(manager)
-    if status['CurrentState'] != win32service.SERVICE_RUNNING or not status['ProcessId']:
+    if status['CurrentState']!=win32service.SERVICE_RUNNING or not status['ProcessId']:
         raise ValueError('Dedicated Ollama service must be running')
-    class Row(ctypes.Structure):
-        _fields_=[(x,wintypes.DWORD) for x in ('state','local_addr','local_port','remote_addr','remote_port','pid')]
-    size=wintypes.ULONG(0)
-    get=ctypes.windll.iphlpapi.GetExtendedTcpTable
-    if get(None,ctypes.byref(size),False,socket.AF_INET,5,0) != 122:
-        raise ValueError('Cannot query TCP owner table')
-    buffer=ctypes.create_string_buffer(size.value)
-    if get(buffer,ctypes.byref(size),False,socket.AF_INET,5,0): raise ValueError('Cannot read TCP owner table')
-    count=wintypes.DWORD.from_buffer(buffer).value
-    rows=(Row*count).from_buffer(buffer,ctypes.sizeof(wintypes.DWORD))
-    pids=[row.pid for row in rows if row.state==2 and socket.ntohs(row.local_port & 65535)==11434
-          and socket.inet_ntoa(int(row.local_addr).to_bytes(4,'little'))=='127.0.0.1']
-    if len(pids)!=1: raise ValueError('Expected one loopback Ollama listener')
-    pythoncom.CoInitialize()
-    try:
-        parents={int(p.ProcessId):int(p.ParentProcessId) for p in win32com.client.GetObject('winmgmts:').ExecQuery('SELECT ProcessId,ParentProcessId FROM Win32_Process')}
-    finally: pythoncom.CoUninitialize()
-    pid=pids[0]
-    for _ in range(8):
-        if pid==status['ProcessId']: return {'service_pid':pid,'listener_pid':pids[0]}
-        pid=parents.get(pid,0)
-        if not pid: break
-    raise ValueError('Port is not owned by the dedicated model service')
+    return status['ProcessId']
+
+
+def ollama_service_listener():
+    """Prove the live TCP peer belongs to the unchanged dedicated SCM service.
+
+    This Windows build reports contradictory state enums even for listener-only
+    queries. A held Winsock connection plus both unique four-tuples establishes
+    an actual peer; SCM and creation snapshots bind its owner to the service.
+    """
+    host=ollama_service_pid();before=process_snapshot()
+    with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as probe:
+        probe.settimeout(3);probe.connect(('127.0.0.1',11434))
+        local,remote=probe.getsockname(),probe.getpeername()
+        if remote!=('127.0.0.1',11434) or local[0]!='127.0.0.1':
+            raise ValueError('Expected the dedicated IPv4 loopback endpoint')
+        deadline=time.monotonic()+2
+        while True:
+            try: server=connected_owner(tcp_owners(),local,remote,os.getpid());break
+            except ValueError:
+                if time.monotonic()>=deadline:raise
+                time.sleep(.05)
+        after=process_snapshot()
+        if ollama_service_pid()!=host:raise ValueError('Model service changed during ownership check')
+        stable_descendant(before,after,host,server)
+        if connected_owner(tcp_owners(),local,remote,os.getpid())!=server or probe.getpeername()!=remote:
+            raise ValueError('Connected model endpoint changed')
+        return {'service_pid':host,'listener_pid':server,'proof':'held_connected_tcp_pair'}
 
 
 def network_guard(event,args):

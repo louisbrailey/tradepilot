@@ -204,7 +204,16 @@ class WindowsTests(unittest.TestCase):
         (self.root/'cutover-allow.json').write_text('{}')
         with self.assertRaisesRegex(ValueError,'activation'): service_preflight.request(self.root)
         (self.root/'cutover-allow.json').unlink()
-        (self.root/'preflight-request.json').write_text('{}')
+        request=self.root/'preflight-request.json'
+        request.write_text('{}')
+        # An elevated token can default new files to Administrators ownership.
+        # Set the actual user explicitly so this tests the same refusal in both contexts.
+        import win32api,win32con,win32security as security
+        token=security.OpenProcessToken(win32api.GetCurrentProcess(),win32con.TOKEN_QUERY)
+        try:user=security.GetTokenInformation(token,security.TokenUser)[0]
+        finally:token.Close()
+        security.SetNamedSecurityInfo(str(request),security.SE_FILE_OBJECT,
+            security.OWNER_SECURITY_INFORMATION,user,None,None,None)
         with self.assertRaisesRegex(ValueError,'administrator owner'): service_preflight.request(self.root)
 
     def test_preflight_network_guard_rejects_listener_and_external_traffic(self):
