@@ -1,6 +1,6 @@
 # Complete Windows candidate — independent ALLOW required
 
-The Mac remains the sole paper writer. This source/bundle preparation does not install services, migrate ledgers, pair the phone or activate a second writer. Actual installation and cutover belong to the Mac deployment owner.
+Installation and updates stay fenced until the reviewed one-writer cutover. Source/bundle preparation does not install services, migrate ledgers, pair the phone or activate a writer. Actual installation and cutover belong to the deployment owner.
 
 ## Runtime and package provenance
 
@@ -18,7 +18,9 @@ package_candidate.py requires clean committed source, emits canonical Git bytes 
 
 ## Disabled installation and actual service preflight
 
-Install-Candidate.ps1 requires an independent ALLOW naming the complete manifestSHA and PSF-signed machine3.14.10. It refuses existing roots/services, verifies copies, protects installation ownership, extracts the exact model runtime, installs both wheel sets offline and registers two virtual-account services DISABLED. No real configuration, ledger, pairing, activation permit, firewall or automatic startup is created. Partial failures remain for owner inspection. Job budgets are3GiB gateway/8GiB Ollama committed memory, not VRAM.
+Install-Candidate.ps1 requires an independent ALLOW naming the complete manifestSHA and PSF-signed machine3.14.10. It refuses existing roots/services, verifies copies, protects installation ownership, extracts the exact model runtime, installs both wheel sets offline and registers separate gateway/Ollama virtual-account services plus the status-only System publisher, all DISABLED. No real configuration, ledger, pairing, activation permit, firewall or automatic startup is created. Partial failures remain for owner inspection. Job budgets are3GiB gateway/8GiB Ollama committed memory, not VRAM.
+
+The recovery configurator requests `SERVICE_START` on each service handle because Windows requires that access when configuring `SC_ACTION_RESTART`; it does not start a service or grant permissions to another principal. Without that handle right, the actual API rejects recovery configuration and activation refences the deployment. See [Microsoft's API contract](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/nf-winsvc-changeserviceconfig2a). Recovery remains three restart actions followed by no action.
 
 The original5GiB Ollama budget omitted enough space for the Python service host: the exact synthetic 473-token request reproduced `std::bad_alloc` and an incomplete response when an idle Python host shared that job. The same executable, read-only weights, CPU settings, request and host completed under8GiB in11.335s, peaking at5,372,014,592 committed bytes. The gateway correctly rejected the incomplete response. This isolated comparison motivates the bounded increase on the32GB desktop; actual service-account acceptance remains required. Model identity, context length, serialization and completion checks are unchanged.
 

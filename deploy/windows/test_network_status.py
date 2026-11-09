@@ -183,10 +183,14 @@ class NetworkStatusTests(unittest.TestCase):
     def test_recovery_ends_with_no_action(self):
         import configure_recovery
         fake = Mock()
-        fake.SC_MANAGER_CONNECT=1;fake.SERVICE_QUERY_STATUS=2;fake.SERVICE_CHANGE_CONFIG=4
+        fake.SC_MANAGER_CONNECT=1;fake.SERVICE_QUERY_STATUS=4;fake.SERVICE_CHANGE_CONFIG=2;fake.SERVICE_START=16
         fake.SERVICE_STOPPED=1;fake.QueryServiceStatus.return_value=(0,1)
         fake.SERVICE_CONFIG_FAILURE_ACTIONS=2;fake.SC_ACTION_RESTART=1;fake.SC_ACTION_NONE=0
         with patch.dict(sys.modules, win32service=fake): configure_recovery.configure()
         self.assertEqual(fake.ChangeServiceConfig2.call_count, 3)
+        self.assertEqual(fake.OpenService.call_count, 3)
+        for call in fake.OpenService.call_args_list:
+            self.assertEqual(call.args[2], fake.SERVICE_QUERY_STATUS | fake.SERVICE_CHANGE_CONFIG | fake.SERVICE_START)
+        fake.StartService.assert_not_called()
         for call in fake.ChangeServiceConfig2.call_args_list:
             self.assertEqual(call.args[2]['Actions'], [(1,15000),(1,30000),(1,60000),(0,0)])

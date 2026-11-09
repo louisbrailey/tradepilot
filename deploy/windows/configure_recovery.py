@@ -7,7 +7,9 @@ def configure():
     manager = scm.OpenSCManager(None, None, scm.SC_MANAGER_CONNECT)
     try:
         for name in SERVICES:
-            service = scm.OpenService(manager, name, scm.SERVICE_QUERY_STATUS | scm.SERVICE_CHANGE_CONFIG)
+            # Restart actions require START on the handle even though this
+            # operation only configures recovery and never starts a service.
+            service = scm.OpenService(manager, name, scm.SERVICE_QUERY_STATUS | scm.SERVICE_CHANGE_CONFIG | scm.SERVICE_START)
             try:
                 if scm.QueryServiceStatus(service)[1] != scm.SERVICE_STOPPED:
                     raise ValueError('All services must be stopped')
