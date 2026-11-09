@@ -7,8 +7,8 @@ $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.Window
 if(-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Administrator required; no automatic elevation'}
 $install='C:\Program Files\TradePilot'
 $state='C:\ProgramData\TradePilot'
-foreach($p in @($install,$state,'C:\ProgramData\TradePilotOllama')){if(Test-Path -LiteralPath $p){throw 'Existing deployment preserved'}}
-if(Get-Service TradePilot,TradePilotOllama -ErrorAction SilentlyContinue){throw 'Existing services preserved'}
+foreach($p in @($install,$state,'C:\ProgramData\TradePilotOllama','C:\ProgramData\TradePilotNetworkStatus')){if(Test-Path -LiteralPath $p){throw 'Existing deployment preserved'}}
+if(Get-Service TradePilot,TradePilotOllama,TradePilotNetworkStatus -ErrorAction SilentlyContinue){throw 'Existing services preserved'}
 function NoReparse([string]$Path){
  $p=[IO.Path]::GetFullPath($Path)
  if($p.StartsWith('\\') -or $p.Substring(2).Contains(':')){throw 'Expected local ordinary path'}
@@ -97,6 +97,13 @@ $hostScript="$install\source\deploy\windows\service_host.py"
 if($LASTEXITCODE){throw 'Gateway registration failed'}
 & "$install\venv\Scripts\python.exe" -B $hostScript ollama --startup disabled --username 'NT SERVICE\TradePilotOllama' install
 if($LASTEXITCODE){throw 'Model registration failed'}
+& "$install\venv\Scripts\python.exe" -B $hostScript network-status --startup disabled install
+if($LASTEXITCODE){throw 'Network publisher registration failed'}
+& sc.exe config TradePilotNetworkStatus depend= Tailscale
+if($LASTEXITCODE){throw 'Network dependency registration failed'}
+& sc.exe config TradePilot depend= Tailscale/TradePilotNetworkStatus/TradePilotOllama
+if($LASTEXITCODE){throw 'Gateway dependencies registration failed'}
+PrivateDirectory 'C:\ProgramData\TradePilotNetworkStatus' 'NT SERVICE\TradePilot' $true
 PrivateDirectory $state 'NT SERVICE\TradePilot' $true
 PrivateDirectory "$state\private" 'NT SERVICE\TradePilot'
 PrivateDirectory "$state\private\runtime" 'NT SERVICE\TradePilot'
