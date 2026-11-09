@@ -2,7 +2,7 @@
 
 A native iPhone assistant for reviewing portfolios, preparing explicitly confirmed trades, and keeping research and a trade journal together.
 
-**Current verified status:** the USB iPhone connects to the Mac gateway and displays the paper portfolio, Markets, a quote chart and live read-only options, including contract details and expiration changes. Version 0.5.2 (build 8) is signed, installed and physically verified: strategy values fit cleanly and drawdown/entry percentages are readable. See [latest status](LATEST-STATUS.md). Webull and Coinbase read access, local AI, Massive research and Kronos replay have prior physical-phone verification. The Mac scheduler is recording three automated SPY paper experiments. Live trading and transfers are disabled. See [the paper protocol](AUTOMATED-PAPER.md).
+**Current verified status:** the home Windows PC runs the gateway, three saved automated SPY paper experiments, local AI and Kronos. The ledger migration, backup/isolated restore, reboot and process recovery are verified; the old Mac gateway is persistently fenced. The iPhone's new desktop connection is awaiting a physical check. Version 0.5.2 (build 8) is installed and was physically verified against the Mac gateway, including Markets, live read-only options and readable strategy values. Webull and Coinbase read access, local AI, Massive research and Kronos replay have prior physical-phone verification. Live trading and transfers are disabled. See [latest status](LATEST-STATUS.md), [home-PC operation](HOME-PC.md) and [the paper protocol](AUTOMATED-PAPER.md).
 
 Kronos is available under **Research → Kronos forecasting lab** for local historical forecasts and baseline comparisons. See [Kronos setup and verification](KRONOS.md).
 
@@ -16,7 +16,7 @@ Kronos is available under **Research → Kronos forecasting lab** for local hist
 - Local Ollama inference or optional OpenAI, strict structured proposals, independent order validation, and separate confirmation.
 - Webull long-stock DAY market/limit order adapter with durable no-duplicate submission and execution evidence.
 - Real Massive/Benzinga research and reproducible multi-stage historical evaluation with results in the app.
-- Private TLS pairing, Keychain access token, and a per-user Mac gateway. The planned always-on host is the [home PC](HOME-PC.md).
+- Private TLS pairing, Keychain access token and native Windows gateway services on the [home PC](HOME-PC.md), with a separate Mac setup available for local development.
 
 See [confirmed broker access, supported scope and safety controls](BROKER-ACCESS.md) for the Coinbase action screen and Webull cancellation flow. The matching gateway routes are deployed. Read-only access has been verified; this does not qualify or enable live submissions.
 
@@ -28,7 +28,7 @@ Phone connection checks and the assistant toggle are under **Accounts → Settin
 
 Free development signing expires every seven days. The `com.tradepilot.keep-signed` launch agent (`scripts/keep-iphone-signed.py`) checks hourly and, within two days of expiry, rebuilds the committed `main` branch with a fresh profile and installs it whenever the iPhone is reachable over USB or Wi-Fi. It never copies pairing data or launches the app. Renewal needs the Apple ID for team ANWNGW59GP signed in under Xcode → Settings → Accounts; as of November 6 none is signed in, and the agent posts a macOS notification once a day until one is. `renew` asks Apple for a new profile without the phone. Check it with `python3 scripts/keep-iphone-signed.py status`; remove it with `python3 scripts/keep-iphone-signed.py remove`. Its log is in `~/Library/Application Support/TradePilot/keep-signed/`.
 
-The already-deployed local gateway is described in [LOCAL-SERVICE.md](LOCAL-SERVICE.md). Configure inference with [LOCAL-AI.md](LOCAL-AI.md). Credentials and private runtime files are deliberately excluded from the source ZIP.
+The active desktop gateway is described in [HOME-PC.md](HOME-PC.md); the previous Mac setup is described in [LOCAL-SERVICE.md](LOCAL-SERVICE.md). Configure inference with [LOCAL-AI.md](LOCAL-AI.md). Credentials and private runtime files are deliberately excluded from the source ZIP.
 
 ## Evidence and limits
 

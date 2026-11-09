@@ -28,6 +28,10 @@
 - [x] Fresh physical launch and live options verified November 8: calls/puts, contract terms/premium/timestamp and expiration changes.
 - [x] Version 0.5.2 strategy display verified on the physical phone November 8: readable currency/percentages and preserved run details; signed build 8 is installed and launched.
 - [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy.
-- [ ] Stage and verify the gateway on the home PC, then move the active ledger and pair the iPhone. See [home PC setup](../HOME-PC.md).
+- [x] Stage and verify the native Windows gateway, local AI and Kronos under their actual service identities. Native tests and all 16 authenticated live checks passed.
+- [x] Fence the Mac writer and move the six saved databases without changing their stored state. Actual backup, isolated restore and off-host mirror passed integrity and state comparisons.
+- [x] Verify Windows reboot and isolated gateway-process recovery without a manual service start. All three services returned after reboot, and the 16 live checks passed again.
+- [ ] Verify service availability before an interactive Windows login. The reboot check observed an existing user session.
+- [ ] Verify pairing import and the USB iPhone's connection to the active Windows gateway. The new pairing is copied, but the phone is locked and the firewall remains Mac-only. See [home PC setup](../HOME-PC.md).
 
 Follow-on product scope retained explicitly: Fidelity supported data access, live crypto/options/short execution, dividend/FX/intraday strategy implementations with appropriate data, broader/custom strategy automation, prospective evaluation, and remote always-on infrastructure. Do not mark these complete from exploratory research or a manual paper ledger.
