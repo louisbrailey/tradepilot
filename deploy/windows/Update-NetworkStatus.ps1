@@ -132,7 +132,11 @@ foreach($entry in $changes){
  $name=Split-Path $entry.path -Leaf
  $destination=Join-Path $install $entry.path
  $copy=Join-Path $stage ('new-'+$name)
- if(Test-Path -LiteralPath $destination){[IO.File]::Replace($copy,$destination,$null)}else{[IO.File]::Move($copy,$destination)}
+ if(Test-Path -LiteralPath $destination){
+  $replacementBackup=[IO.Path]::GetFullPath((Join-Path $stage ('replaced-'+$name)))
+  if(Test-Path -LiteralPath $replacementBackup){throw 'Existing replacement backup preserved'}
+  [IO.File]::Replace($copy,$destination,$replacementBackup)
+ }else{[IO.File]::Move($copy,$destination)}
  ProtectPath $destination $false 'Authenticated Users'
  if((Get-FileHash -LiteralPath $destination).Hash -ne $entry.sha256){throw 'Installed delta checksum mismatch'}
 }
@@ -152,7 +156,9 @@ if($LASTEXITCODE){throw 'Gateway dependency failed'}
 # Publish the new installed receipt last. The original bytes remain in stage.
 $nextManifest=Join-Path $stage 'next-manifest.json'
 [IO.File]::WriteAllBytes($nextManifest,$manifestBytes)
-[IO.File]::Replace($nextManifest,$basePath,$null)
+$manifestBackup=[IO.Path]::GetFullPath((Join-Path $stage 'replaced-manifest.json'))
+if(Test-Path -LiteralPath $manifestBackup){throw 'Existing replacement backup preserved'}
+[IO.File]::Replace($nextManifest,$basePath,$manifestBackup)
 ProtectPath $basePath $false 'Authenticated Users'
 if((Get-FileHash -LiteralPath $basePath).Hash -ne $manifestHash){throw 'Updated manifest receipt mismatch'}
 @{version=1;status='installed-disabled';base_manifest_sha256=$baseHash;manifest_sha256=$manifestHash;delta_sha256=$delta[0].sha256} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'result.json') -Encoding utf8
