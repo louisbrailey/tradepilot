@@ -1,3 +1,11 @@
+# November 24, 2026 — gateway rechecked and iPhone signing renewed
+
+The home Windows gateway, Ollama and network-status services are running with the reviewed installed manifest unchanged. Hostname-verified, exact-certificate authenticated setup and paper-scheduler requests passed. A fresh six-database periodic backup completed and its off-host Mac copy passed every member hash and immutable SQLite integrity check. The selected hosting path remains the home PC.
+
+The three preserved paper experiments each have six observations through November 12 and are now on a data hold after missing November 13. Their fill counts remain 1/0/0. The continuity gate correctly prevents retrospective decisions or catch-up fills; no experiment was resumed, reset or newly armed.
+
+After the owner signed into Xcode, automatic signing renewal and installation succeeded on the exact USB iPhone. The current local profile expires **December 1, 2026 at 15:45 Pacific**. Its team and application identity match TradePilot and it includes that device. iOS still rejects launch pending developer trust, so the renewed installation and actual phone-to-Windows connection are not yet physically accepted. The current Windows firewall remains Mac-only.
+
 # November 8, 2026 — home Windows gateway active
 
 The desktop is now the active paper gateway; the Mac writer is stopped, persistently disabled and configuration-fenced. Six databases and the existing private configuration were transferred over pinned SSH into protected Windows storage. The real service-account backup, isolated restore and off-host Mac copy match the export's schema and stored values. The saved three paper runs retain their IDs, two observations each, fill counts of 1/0/0 and November 9 next sessions. No strategy logic was changed or new run armed.

@@ -21,17 +21,17 @@
 - [x] iOS 27.2 setup finished on the iPhone; TradePilot 0.5.0 launched there on November 7, 15:07 PT (iOS accepts the signing), and its Home, Markets card and tab bar rendered on the device, with the unreachable server handled.
 - [x] Physical-phone Markets, watchlist and quote chart verified November 8 after repairing the stale paired hostname.
 - [ ] Verify an alert notification and Coinbase USD values on the physical phone. Existing simulator/gateway checks do not establish these device results.
-- [ ] Sign in to Xcode (Settings → Accounts) with the Apple ID for team ANWNGW59GP so `com.tradepilot.keep-signed` can renew signing before November 11, 00:35 PT.
+- [x] Sign in to Xcode with the Apple Account for team ANWNGW59GP and verify signing renewal plus installation. Completed November 24; the new profile includes the USB phone and expires December 1 at 15:45 Pacific.
 - [x] Deploy the Coinbase USD pricing route (`/v1/market/crypto`) with `scripts/update-local-gateway.py apply` (owner-approved; deployed November 7, 14:57 PT).
 - [x] Review and finish the read-only options chain (0.5.1): expiration binding, pagination, distinct adjusted series, contract terms, missing activity and simulator checks. Signed build 7 is installed on the USB phone.
 - [x] Deploy and verify the 0.5.1 options review fixes on the Mac gateway (November 8, 10:41 PT; pinned health and options checks passed; paper state preserved).
 - [x] Fresh physical launch and live options verified November 8: calls/puts, contract terms/premium/timestamp and expiration changes.
 - [x] Version 0.5.2 strategy display verified on the physical phone November 8: readable currency/percentages and preserved run details; signed build 8 is installed and launched.
-- [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy.
+- [ ] Accumulate enough prospective observations to evaluate each frozen paper strategy. The three initial experiments are preserved on a missed-session hold after six observations through November 12; later work requires a fresh prospective protocol, not retrospective fills.
 - [x] Stage and verify the native Windows gateway, local AI and Kronos under their actual service identities. Native tests and all 16 authenticated live checks passed.
 - [x] Fence the Mac writer and move the six saved databases without changing their stored state. Actual backup, isolated restore and off-host mirror passed integrity and state comparisons.
 - [x] Verify Windows reboot and isolated gateway-process recovery without a manual service start. All three services returned after reboot, and the 16 live checks passed again.
 - [ ] Verify service availability before an interactive Windows login. The reboot check observed an existing user session.
-- [ ] Verify pairing import and the USB iPhone's connection to the active Windows gateway. The new pairing is copied, but the phone is locked and the firewall remains Mac-only. See [home PC setup](../HOME-PC.md).
+- [ ] Verify developer trust, pairing import and the USB iPhone's connection to the active Windows gateway. Signing was renewed and installed November 24; actual app launch and the route remain unverified, and the firewall remains Mac-only. See [home PC setup](../HOME-PC.md).
 
 Follow-on product scope retained explicitly: Fidelity supported data access, live crypto/options/short execution, dividend/FX/intraday strategy implementations with appropriate data, broader/custom strategy automation, prospective evaluation, and remote always-on infrastructure. Do not mark these complete from exploratory research or a manual paper ledger.
