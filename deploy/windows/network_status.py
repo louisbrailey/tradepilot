@@ -237,12 +237,12 @@ def publish(record):
         with open_checked(temporary): pass
         if STATUS.exists():
             with open_checked(STATUS): pass
-        # Reader may briefly hold a no-delete-share handle. Retry only sharing
-        # violation, bounded below the publication/freshness interval.
+        # A reader holding a no-delete-share handle can cause WinError 5 or 32
+        # on replacement. Retry briefly without changing any validation or ACL.
         for attempt in range(10):
             try: os.replace(temporary, STATUS); break
             except OSError as error:
-                if getattr(error, 'winerror', None) != 32 or attempt == 9: raise
+                if getattr(error, 'winerror', None) not in (5, 32) or attempt == 9: raise
                 time.sleep(.05)
 
 

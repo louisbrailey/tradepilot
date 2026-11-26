@@ -1,5 +1,5 @@
 """Synthetic status, ACL and child-process failures; no real Tailscale query."""
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from datetime import datetime, timedelta, timezone
 import io
 import json
@@ -172,6 +172,24 @@ class NetworkStatusTests(unittest.TestCase):
                 net.publish(net.record_status(None,STAMP))
                 with self.assertRaises(ValueError): net.read_status()
                 self.assertEqual({p.name for p in root.iterdir()},{'status.json'})
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows file SDK')
+    def test_real_publication_retries_when_reader_blocks_replacement(self):
+        with tempfile.TemporaryDirectory(prefix='tradepilot-net-retry-') as temp:
+            root = Path(temp)
+            status = root / 'status.json'
+            with patch.object(net, 'ROOT', root), patch.object(net, 'STATUS', status), \
+                    patch.object(net, 'validate_acl'), patch.object(net, 'receipt_security', return_value=None), \
+                    patch.object(net, 'clock', return_value=STAMP):
+                net.publish(net.record_status(RAW, STAMP))
+                with ExitStack() as reader:
+                    reader.enter_context(net.open_checked(status))
+                    with patch.object(net.time, 'sleep', side_effect=lambda _: reader.close()) as retry:
+                        net.publish(net.record_status(None, STAMP))
+                    retry.assert_called_once_with(.05)
+                stored = net.decode(status.read_bytes())
+                self.assertFalse(stored['ok'])
+                self.assertFalse((root / 'status.tmp').exists())
 
     @unittest.skipUnless(os.name == 'nt', 'SCM module imports only')
     def test_service_host_import_has_no_gateway_or_private_modules(self):
