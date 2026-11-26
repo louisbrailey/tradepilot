@@ -13,6 +13,10 @@ struct KronosReport: Decodable, Sendable {
     let lookback: Int; let horizon: Int; let samples: Int; let seed: Int
     let generated_at: Double; let mae: Double; let baseline_mae: Double
     let points: [KronosPoint]
+    var chartTickDates: [String] {
+        guard points.count >= 3 else { return points.map(\.date) }
+        return [points[0].date, points[points.count / 2].date, points[points.count - 1].date]
+    }
     func matches(symbol: String, sessions: Int) -> Bool {
         mode == "historical_replay" && ticker == symbol && horizon == sessions && lookback == 128 && samples == 3 &&
         points.count == sessions && Set(points.map(\.date)).count == sessions &&
@@ -43,7 +47,7 @@ struct KronosView: View {
                     Picker("Sessions", selection: $horizon) { Text("5").tag(5); Text("20").tag(20) }.pickerStyle(.segmented).frame(width: 120).disabled(busy)
                 }
                 Button(busy ? "Running…" : "Run replay") { run() }.buttonStyle(PrimaryButtonStyle()).disabled(busy || ticker.trimmingCharacters(in: .whitespaces).isEmpty)
-                if busy { HStack(spacing: Spacing.s) { ProgressView(); Text("Running the local model on your Mac…").font(.footnote).foregroundStyle(Theme.textSecondary) } }
+                if busy { HStack(spacing: Spacing.s) { ProgressView(); Text("Running the model on your server…").font(.footnote).foregroundStyle(Theme.textSecondary) } }
             }
             OutcomeNotice(text: message, kind: report == nil && !message.isEmpty ? .error : .info)
             if let report {
@@ -57,7 +61,16 @@ struct KronosView: View {
                             .foregroundStyle(by: .value("Series", "Unchanged"))
                     }
                     .chartForegroundStyleScale(["Forecast": Theme.accent, "Actual": Theme.textPrimary, "Unchanged": Theme.textTertiary])
-                    .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { _ in AxisValueLabel().foregroundStyle(Theme.textTertiary) } }
+                    .chartXAxis {
+                        AxisMarks { tick in
+                            if let day = tick.as(String.self), report.chartTickDates.contains(day) {
+                                AxisValueLabel {
+                                    Text(day.suffix(5).replacingOccurrences(of: "-", with: "/"))
+                                        .foregroundStyle(Theme.textTertiary)
+                                }
+                            }
+                        }
+                    }
                     .chartYAxis { AxisMarks { _ in AxisGridLine().foregroundStyle(Theme.separator); AxisValueLabel().foregroundStyle(Theme.textTertiary) } }
                     .chartYScale(domain: .automatic(includesZero: false)).frame(height: 220)
                     HStack(spacing: Spacing.l) {

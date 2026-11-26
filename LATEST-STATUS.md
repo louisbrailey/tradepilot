@@ -1,3 +1,11 @@
+# November 25, 2026 — TradePilot 0.5.3 on the USB iPhone
+
+The signed build 9 was installed in place and loaded the paper portfolio from the same paired Windows gateway over Tailscale. Physical checks covered the Markets watchlist, AAPL chart, calls and puts across two expirations, price-alert state, saved paper-strategy history, and five- and twenty-session AAPL Kronos replays. The replay axis uses short, spaced dates, and saved strategy decisions display equity as currency. The three paper runs still have six observations each and one total fill.
+
+TradePilot's new **Send test notification** control displayed an iOS banner after notification permission was granted. A real market-triggered alert during iOS background refresh remains unverified. The Windows gateway returned public USD prices for USD, BTC and ETH. Coinbase clears prior prices when new balances load and waits for the next price response. Physical verification with real account balances remains pending.
+
+Windows's network-status publisher and gateway recovered after unexpected stops. A native scratch test reproduced a file-replacement permission error while a reader held the status file. The reviewed source fix retries that transient condition within the existing bound. The active Windows deployment still needs a reviewed update. The current boot recorded an interactive login before the TradePilot services, so pre-login availability remains unverified.
+
 # November 25, 2026 — USB iPhone connects to the home PC
 
 TradePilot 0.5.2 on the physical USB iPhone completed its authenticated **Test connection** over Tailscale and loaded the saved paper portfolio from the Windows gateway. Windows observed the phone's Tailscale connection on the gateway service and restricts access to the Mac and that phone. The local development build uses a transport setting scoped to the PC's hostname and still requires HTTPS, hostname validation and the exact paired certificate. Live Webull orders displayed **Off**.

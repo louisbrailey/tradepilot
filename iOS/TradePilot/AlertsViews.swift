@@ -145,6 +145,9 @@ struct AlertsListView: View {
     @State private var snapshot: AlertsSnapshot?
     @State private var message = ""
     @State private var busy = false
+    @State private var testingNotification = false
+    @State private var notificationMessage = ""
+    @State private var notificationNotice: NoticeKind = .info
 
     private var binding: BrokerConnectionBinding { .init(endpoint: store.aiEndpoint, token: store.aiToken) }
 
@@ -180,8 +183,35 @@ struct AlertsListView: View {
             } else if busy {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, Spacing.xl)
             }
+            SectionCard(title: "Notifications") {
+                Button("Send test notification") { testNotification() }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(testingNotification)
+                OutcomeNotice(text: notificationMessage, kind: notificationNotice)
+            }
         }
         .task(id: binding) { await load() }
+    }
+
+    private func testNotification() {
+        guard !testingNotification else { return }
+        testingNotification = true
+        notificationMessage = ""
+        Task {
+            defer { testingNotification = false }
+            do {
+                if try await AlertNotifier.sendTest() {
+                    notificationNotice = .info
+                    notificationMessage = "Look for the TradePilot test notification."
+                } else {
+                    notificationNotice = .warning
+                    notificationMessage = "Notifications are off. Allow them for TradePilot in your device settings and try again."
+                }
+            } catch {
+                notificationNotice = .error
+                notificationMessage = "Couldn't send the test notification. Try again."
+            }
+        }
     }
 
     private func load() async {

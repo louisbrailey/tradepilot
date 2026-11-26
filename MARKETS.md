@@ -21,7 +21,7 @@ Holdings in the paper account and stock positions in Webull open the same quote 
 
 The bell on a quote page sets an alert above or below a price; the composer offers ±5% and ±10% steps from the last price. The gateway checks active alerts about once a minute during pre-market, regular and after-hours trading, and only prices observed after an alert was set can trigger it. Up to 50 alerts can be active. Alerts never create, review or place orders.
 
-The app posts a notification for each new trigger and shows the triggered count on its icon. Tapping the notification opens that symbol. Without a paid Apple Developer account there is no push service, so the app relies on iOS background refresh, which iOS schedules at its own discretion and only while the iPhone is unlocked, because the gateway token stays in unlocked-only Keychain storage. The app also checks whenever Markets or the alert list is open. Notification permission is requested after the first alert is created.
+The app posts a notification for each new trigger and shows the triggered count on its icon. Tapping the notification opens that symbol. The app relies on iOS background refresh. iOS schedules refresh at its discretion, and TradePilot can check only while the iPhone is unlocked because the gateway token stays in unlocked-only Keychain storage. The app also checks when Markets or the alert list opens. In **Price alerts → Notifications**, tap **Send test notification** to check iOS delivery without adding a price target. TradePilot requests notification permission on the first alert or test.
 
 ## Data and freshness
 

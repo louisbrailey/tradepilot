@@ -211,5 +211,12 @@ if CommandLine.arguments.count > 1 {
     precondition(automationState.mode == "automated_paper" && automationState.runs.count == 3)
     precondition(automationState.runs.allSatisfy { $0.active && $0.cash == "10000" && $0.observations == 0 && $0.pending == nil })
     precondition(automationState.runs.allSatisfy { $0.protocol.cost_bps == 10 && $0.symbol == "SPY" && !$0.events.isEmpty })
+    let eventPrefix = "2026-11-12: long for 2026-11-13; paper equity "
+    let event = AutomatedPaperEvent(id: 1, at: 0, kind: "decision", message: eventPrefix + "10073.2956244485374")
+    precondition(event.displayMessage == eventPrefix + money(Decimal(1_007_330) / 100))
+    let unknownEvent = AutomatedPaperEvent(id: 2, at: 0, kind: "decision", message: eventPrefix + "unavailable")
+    precondition(unknownEvent.displayMessage == unknownEvent.message)
+    let hold = AutomatedPaperEvent(id: 3, at: 0, kind: "data_hold", message: "Missed scheduled session; no catch-up decisions or fills")
+    precondition(hold.displayMessage == hold.message)
     print("PASS automated paper protocol, independent accounts and event decoding")
 }

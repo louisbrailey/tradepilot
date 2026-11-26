@@ -4,19 +4,19 @@ See [LATEST-STATUS.md](LATEST-STATUS.md) for dated verification and [tasks/todo.
 
 ## Supported local app
 
-- Physical iPhone installation with a certificate-pinned private Mac gateway.
+- Physical iPhone installation with a certificate-pinned private Windows gateway over Tailscale.
 - Webull account holdings/balances and Coinbase View-only asset balances.
 - Explicitly confirmed manual paper trading with a durable ledger and journal.
 - Three fixed automated SPY paper experiments with a separate scheduler, portfolios and data/risk stops; see [AUTOMATED-PAPER.md](AUTOMATED-PAPER.md).
 - Local AI, Massive research, fixed strategy comparisons and Kronos historical replay.
-- Markets: watchlist, index ETFs, large-cap movers, symbol search and quote pages with charts, statistics, dividends and headlines; gateway-checked price alerts shown in the app (0.5.0, deployed to the Mac gateway; on the iPhone after the developer profile is trusted).
+- Markets with a watchlist, index ETFs, large-cap movers, symbol search, quote pages and gateway-checked price alerts.
 - Sample portfolio and demo assistant kept visibly separate from real account data.
 
 Broker write functionality in source is not production-qualified by these read-only checks. Live trading, cancellation and transfers remain disabled in the current deployment. The Coinbase key has no Trade or Transfer grants. No strategy has qualified for live adoption.
 
 ## Operational requirements
 
-The Mac must remain awake and reachable on the phone's LAN. A changing public IPv4 requires an update to the Coinbase key allowlist. A changing local hostname requires deliberate TLS re-pairing. The user chose to keep the local development app. Its current signing profile expires November 11, 2026 at 00:35 Pacific; refresh signing and reinstall before then. The gateway TLS certificate also has finite validity and needs renewal before expiration. See [LOCAL-SERVICE.md](LOCAL-SERVICE.md), [COINBASE-SETUP.md](COINBASE-SETUP.md) and the latest release report.
+The home PC must stay powered and reachable on Tailscale. The Mac can sleep during normal iPhone use. Local development signing renewal still needs the Mac and a reachable iPhone, and the gateway certificate needs renewal before it expires. See [HOME-PC.md](HOME-PC.md) and [LATEST-STATUS.md](LATEST-STATUS.md).
 
 ## Further product scope
 
@@ -25,8 +25,8 @@ These are separate features or external integrations, not completed by installin
 | Work | What remains |
 | --- | --- |
 | Fidelity account data | Supported provider integration, entitlement and separately approved account connection. No retail trading endpoint is invented. |
-| Always-on remote access | Hosting/network design and a reviewed deployment; the current gateway is local to the Mac. |
-| Prospective evaluation and broader automation | The three fixed SPY paper protocols are implemented and started. Future-session settlements and sufficient prospective observations still need to occur. Custom universes, schedules, notifications and performance promotion are not implemented. |
+| PC availability before Windows login | The phone is connected to the deployed PC over Tailscale. A controlled startup with no interactive login is still required for pre-login verification. |
+| Prospective evaluation and broader automation | The three fixed SPY runs have six observations each and stopped after one missed session. A fresh, explicitly started paper cohort and enough future observations are needed for evaluation. Custom universes and schedules require separate design. |
 | Additional strategy families | Appropriate dividend, FX, intraday or options data plus preregistered evaluation; no tuning observed holdouts into a success claim. |
 | Live crypto/options/short execution | Product-specific contracts, provider entitlement, risk controls and independently verified execution evidence before any enablement. |
 | App Store/TestFlight distribution | Distribution signing and the applicable Apple account/review requirements. Current installation is a signed development build. |

@@ -240,6 +240,14 @@ struct AutomatedPaperDecision: Decodable, Sendable {
 }
 struct AutomatedPaperEvent: Decodable, Sendable, Identifiable {
     let id: Int; let at: Double; let kind: String; let message: String
+
+    var displayMessage: String {
+        guard kind == "decision", let marker = message.range(of: "; paper equity ", options: .backwards),
+              let equity = strictDecimal(String(message[marker.upperBound...]), allowNegative: false) else {
+            return message
+        }
+        return String(message[..<marker.upperBound]) + money(equity)
+    }
 }
 struct AutomatedPaperRun: Decodable, Sendable, Identifiable {
     let id: String; let strategy: String; let symbol: String; let status: String; let reason: String
@@ -581,6 +589,7 @@ struct CoinbaseView: View {
             guard result.broker == "coinbase", result.read_only, result.as_of.isFinite, result.as_of > 0 else {
                 throw WorkspaceError(message: "Coinbase returned an unexpected balance response. Pull down to refresh.")
             }
+            prices = nil
             snapshot = result; message = ""
         } catch {
             if b.matches(endpoint: store.aiEndpoint, token: store.aiToken) { message = error.localizedDescription }
@@ -1043,7 +1052,7 @@ struct AutomatedPaperRunDetail: View {
                     ForEach(run.events) { event in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(gatewayDate(event.at)).font(.caption).foregroundStyle(Theme.textTertiary)
-                            Text(event.message).font(.footnote).textSelection(.enabled)
+                            Text(event.displayMessage).font(.footnote).textSelection(.enabled)
                         }.padding(.vertical, Spacing.xs)
                     }
                 }

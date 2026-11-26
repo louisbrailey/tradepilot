@@ -16,6 +16,24 @@ enum AlertNotifier {
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
     }
 
+    static func sendTest() async throws -> Bool {
+        let center = UNUserNotificationCenter.current()
+        var status = await center.notificationSettings().authorizationStatus
+        if status == .notDetermined {
+            await requestPermission()
+            status = await center.notificationSettings().authorizationStatus
+        }
+        guard status == .authorized || status == .provisional else { return false }
+
+        let content = UNMutableNotificationContent()
+        content.title = "TradePilot notification test"
+        content.body = "Your iPhone received a test notification."
+        content.sound = .default
+        content.threadIdentifier = "price-alerts"
+        try await center.add(UNNotificationRequest(identifier: "tradepilot.alerts.test", content: content, trigger: nil))
+        return true
+    }
+
     /// One notification per newly triggered alert; the app badge shows how many are triggered.
     static func deliver(_ snapshot: AlertsSnapshot) async {
         let center = UNUserNotificationCenter.current()
