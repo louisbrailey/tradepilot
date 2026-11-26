@@ -32,6 +32,7 @@
 - [x] Fence the Mac writer and move the six saved databases without changing their stored state. Actual backup, isolated restore and off-host mirror passed integrity and state comparisons.
 - [x] Verify Windows reboot and isolated gateway-process recovery without a manual service start. All three services returned after reboot, and the 16 live checks passed again.
 - [ ] Verify service availability before an interactive Windows login. The reboot check observed an existing user session.
-- [ ] Verify developer trust, pairing import and the USB iPhone's connection to the active Windows gateway. Signing was renewed and installed November 24; actual app launch and the route remain unverified, and the firewall remains Mac-only. See [home PC setup](../HOME-PC.md).
+- [x] Verify developer trust, app launch and Windows pairing import on the USB iPhone. Passed November 25 with an exact certificate and endpoint match.
+- [ ] Connect that USB iPhone to the PC's Tailscale network and verify an authenticated request from TradePilot on the phone. See [home PC setup](../HOME-PC.md).
 
 Follow-on product scope retained explicitly: Fidelity supported data access, live crypto/options/short execution, dividend/FX/intraday strategy implementations with appropriate data, broader/custom strategy automation, prospective evaluation, and remote always-on infrastructure. Do not mark these complete from exploratory research or a manual paper ledger.

@@ -1,3 +1,7 @@
+# November 25, 2026 — TradePilot opens on the USB iPhone
+
+Developer trust is confirmed, and TradePilot 0.5.2 opens on the physical USB iPhone. The app imported the Windows gateway address and the exact pinned certificate. It displays **Server unavailable** while Tailscale is missing from this phone. Install Tailscale and connect it to the PC's private network before verifying the phone route. The Windows gateway remains reachable from the Mac.
+
 # November 24, 2026 — gateway rechecked and iPhone signing renewed
 
 The home Windows gateway, Ollama and network-status services are running with the reviewed installed manifest unchanged. Hostname-verified, exact-certificate authenticated setup and paper-scheduler requests passed. A fresh six-database periodic backup completed and its off-host Mac copy passed every member hash and immutable SQLite integrity check. The selected hosting path remains the home PC.
