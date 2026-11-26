@@ -1,6 +1,6 @@
 # Home PC gateway
 
-The home Windows desktop now runs the private gateway, paper scheduler, Ollama assistant and Kronos replay. The Mac gateway is stopped, persistently disabled and configuration-fenced. The six saved databases have moved without changing their schema or stored values. Live checks passed before and after a Windows reboot, and the gateway recovered automatically after an isolated process failure. Physical iPhone reachability remains pending.
+The home Windows desktop now runs the private gateway, paper scheduler, Ollama assistant and Kronos replay. The Mac gateway is stopped, persistently disabled and configuration-fenced. The six saved databases have moved without changing their schema or stored values. Live checks passed before and after a Windows reboot, and the gateway recovered automatically after an isolated process failure. The paired USB iPhone passed its authenticated connection check over Tailscale.
 
 ## Actual host and installation
 
@@ -29,7 +29,7 @@ Live broker trading and transfers stay disabled, and the broker kill switch stay
 
 ## Current operation and recovery evidence
 
-Source `a7e4363`, installed manifest `65a1434d90611871c0be6d3e06342454b81514117a51b92608885cea430f9f52`. The gateway binds only the desktop Tailscale IPv4 and uses a new token and pinned certificate. The current firewall allows the Mac client only; phone access is awaiting a controlled route check. All broker live/trading/transfer flags stay off and the kill switch stays on. No real broker accounts were used as test probes.
+Source `a7e4363`, installed manifest `65a1434d90611871c0be6d3e06342454b81514117a51b92608885cea430f9f52`. The gateway binds only the desktop Tailscale IPv4 and uses a new token and pinned certificate. Windows allows the Mac and the verified iPhone Tailscale addresses. The `TradePilot-Gateway-Block-Unlisted` rule blocks other clients on the gateway's address and TCP port to take precedence over Tailscale's default inbound allow. Update both TradePilot rules if an approved client address changes. Both clients passed authenticated setup after the restriction took effect. All broker live/trading/transfer flags stay off and the kill switch stays on. No real broker accounts were used as test probes.
 
 The actual three service accounts are `NT SERVICE\TradePilot`, `NT SERVICE\TradePilotOllama` and LocalSystem for the fixed status-only publisher. All use delayed automatic startup. Recovery readback confirms restart delays of 15, 30 and 60 seconds followed by no action, with a one-day reset period. The first production backup completed automatically after 60 seconds.
 
@@ -43,4 +43,6 @@ The original Mac configuration, TLS, pairing and launch-agent plist are retained
 
 Restore always targets a new isolated directory. A rollback must stop and persistently fence Windows before enabling any Mac writer; never reactivate the old Mac copy while Windows owns the ledger. Preserve the latest Windows state and reconcile changes before rolling back to an older snapshot.
 
-The PC must stay powered, connected to the internet and available on Tailscale. Its verified power plan has both AC sleep and AC hibernation timeouts set to zero, so idle power management will not suspend the server. The Mac can sleep and the off-host backup mirror catches up when it wakes. The iPhone uses local development signing. Its profile expires December 1 at 15:45 Pacific. Developer trust, launch and pairing import passed on November 25. The phone still needs Tailscale enrollment and a verified route to the PC. Later signing renewal needs the Mac awake and the phone reachable for installation.
+The PC must stay powered, connected to the internet and available on Tailscale. Its verified power plan has both AC sleep and AC hibernation timeouts set to zero, so idle power management will not suspend the server. The Mac can sleep and the off-host backup mirror catches up when it wakes. The iPhone uses local development signing. Its profile expires December 1 at 15:45 Pacific. Developer trust, launch, pairing import and the authenticated Tailscale connection passed on November 25.
+
+Configure the Mac signing agent with `python3 scripts/keep-iphone-signed.py install --device UDID --private-gateway-host HOST`, where `HOST` is the exact paired PC MagicDNS hostname without the scheme or port. For a manual signing-agent refresh, pass the same option to `run`. This applies Apple’s custom trust setting only to that host in the exported development build. The app requires HTTPS and validates the hostname and the exact certificate from pairing. Signing renewal needs the Mac awake and the phone reachable for installation.

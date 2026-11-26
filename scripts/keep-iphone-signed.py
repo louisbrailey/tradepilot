@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -101,6 +102,24 @@ def export_main(destination: Path) -> str:
     return commit
 
 
+def private_gateway_host(value: str) -> str:
+    label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    if not re.fullmatch(rf"{label}\.{label}\.ts\.net", value):
+        raise argparse.ArgumentTypeError("expected a lowercase Tailscale MagicDNS hostname")
+    return value
+
+
+def allow_paired_gateway_tls(source: Path, host: str) -> None:
+    path = source / "iOS" / "TradePilot" / "Info.plist"
+    info = plistlib.loads(path.read_bytes())
+    ats = info.setdefault("NSAppTransportSecurity", {})
+    domains = ats.setdefault("NSExceptionDomains", {})
+    # Allow URLSession to evaluate TradePilot's own exact-leaf trust challenge.
+    # The app still requires HTTPS and hostname-verified, pinned trust.
+    domains.setdefault(private_gateway_host(host), {})["NSExceptionAllowsInsecureHTTPLoads"] = True
+    path.write_bytes(plistlib.dumps(info, sort_keys=False))
+
+
 def build_and_install(device: str, source: Path, derived: Path) -> Path:
     environment = {**os.environ, "DEVELOPER_DIR": os.environ.get("DEVELOPER_DIR", DEVELOPER_DIR)}
     build = subprocess.run(["xcodebuild", "-project", str(source / "iOS" / "TradePilot.xcodeproj"), "-scheme", "TradePilot",
@@ -137,8 +156,10 @@ def restore(moved: list[tuple[Path, Path]]) -> None:
             shutil.move(str(saved), str(original))
 
 
-def run(device: str, force: bool = False, now: float | None = None) -> str:
+def run(device: str, force: bool = False, now: float | None = None, gateway_host: str | None = None) -> str:
     """One check. Decisions follow the profile inside the build on the phone, not the Mac's copy."""
+    if gateway_host is not None:
+        private_gateway_host(gateway_host)
     now = time.time() if now is None else now
     state = load_state()
     profiles = app_profiles()
@@ -158,6 +179,8 @@ def run(device: str, force: bool = False, now: float | None = None) -> str:
         source.mkdir()
         try:
             commit = export_main(source)
+            if gateway_host is not None:
+                allow_paired_gateway_tls(source, gateway_host)
             build_and_install(device, source, derived)
         except Exception:
             restore(moved)
@@ -222,18 +245,22 @@ def explain(error: Exception, now: float | None = None) -> str:
     return "refresh needs action: " + SIGN_IN
 
 
-def plist(device: str) -> dict:
+def plist(device: str, gateway_host: str | None = None) -> dict:
+    arguments = ["/usr/bin/python3", str(Path(__file__).resolve()), "run", "--device", device]
+    if gateway_host is not None:
+        arguments.extend(["--private-gateway-host", private_gateway_host(gateway_host)])
     STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     return {
         "Label": LABEL,
-        "ProgramArguments": ["/usr/bin/python3", str(Path(__file__).resolve()), "run", "--device", device],
+        "ProgramArguments": arguments,
         "StartInterval": 3600, "RunAtLoad": True, "ProcessType": "Background", "LowPriorityIO": True,
         "EnvironmentVariables": {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "DEVELOPER_DIR": DEVELOPER_DIR},
         "StandardOutPath": str(STATE_DIR / "keep-signed.log"), "StandardErrorPath": str(STATE_DIR / "keep-signed.log"),
     }
 
 
-def install(device: str) -> None:
+def install(device: str, gateway_host: str | None = None) -> None:
+    agent = plist(device, gateway_host)
     if "profile_expires_at" not in load_state():
         # Until the agent installs a build itself, assume the phone's app carries the Mac's current profile.
         profiles = app_profiles()
@@ -241,7 +268,7 @@ def install(device: str) -> None:
                     "note": "assumed from the local profile when the agent was installed"})
     destination = agent_path()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(plistlib.dumps(plist(device)))
+    destination.write_bytes(plistlib.dumps(agent))
     subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{LABEL}"], capture_output=True)
     result = subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(destination)], capture_output=True, text=True)
     if result.returncode:
@@ -275,12 +302,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=("install", "remove", "status", "run", "renew"))
     parser.add_argument("--device", help="iPhone UDID from `xcrun devicectl list devices`")
+    parser.add_argument("--private-gateway-host", type=private_gateway_host,
+                        help="exact Tailscale hostname of the paired gateway (install or run)")
     parser.add_argument("--force", action="store_true", help="refresh even if the profile is not close to expiry")
     args = parser.parse_args()
     if args.command in ("install", "run") and not args.device:
         parser.error("--device is required")
+    if args.private_gateway_host is not None and args.command not in ("install", "run"):
+        parser.error("--private-gateway-host only applies to install or run")
     if args.command == "install":
-        install(args.device)
+        install(args.device, args.private_gateway_host)
     elif args.command == "remove":
         remove()
     elif args.command == "status":
@@ -293,7 +324,7 @@ def main() -> None:
             sys.exit(1)
     else:
         try:
-            log(run(args.device, force=args.force))
+            log(run(args.device, force=args.force, gateway_host=args.private_gateway_host))
         except Exception as error:
             log(explain(error))
             sys.exit(1)

@@ -2,6 +2,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import plistlib
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -112,6 +113,40 @@ class KeepSignedTests(unittest.TestCase):
         state = json.loads((self.state / "state.json").read_text())
         self.assertEqual((state["installed_commit"], state["profile_expires_at"]), ("abc123def4567", NOW + 7 * 86400))
         self.assertEqual(list((self.state / "profile-backup").iterdir()), [])
+
+    def test_private_gateway_host_is_preserved_in_renewed_build(self):
+        self.profile("current.mobileprovision", NOW + 3600)
+        host = "desktop-a.example-tailnet.ts.net"
+        original = {"CFBundleName": "TradePilot"}
+
+        def export(source):
+            info = source / "iOS" / "TradePilot" / "Info.plist"
+            info.parent.mkdir(parents=True)
+            info.write_bytes(plistlib.dumps(original))
+            return "abc123"
+
+        def install(device, source, derived):
+            info = plistlib.loads((source / "iOS" / "TradePilot" / "Info.plist").read_bytes())
+            self.assertEqual(info, {
+                **original,
+                "NSAppTransportSecurity": {
+                    "NSExceptionDomains": {host: {"NSExceptionAllowsInsecureHTTPLoads": True}},
+                },
+            })
+
+        with mock.patch.object(MODULE, "device_reachable", return_value=True), \
+                mock.patch.object(MODULE, "export_main", side_effect=export), \
+                mock.patch.object(MODULE, "build_and_install", side_effect=install) as build:
+            MODULE.run(DEVICE, now=NOW, gateway_host=host)
+        build.assert_called_once()
+        self.assertEqual(MODULE.plist(DEVICE, host)["ProgramArguments"][-2:], ["--private-gateway-host", host])
+        self.assertNotIn("--private-gateway-host", MODULE.plist(DEVICE)["ProgramArguments"])
+
+    def test_private_gateway_host_rejects_wider_or_non_dns_inputs(self):
+        for host in ("*.tailnet.ts.net", "tailnet.ts.net", "100.96.0.24", "box.local",
+                     "box.tailnet.ts.net:8787", "https://box.tailnet.ts.net", "box.tailnet.ts.net\n"):
+            with self.subTest(host=host), self.assertRaises(MODULE.argparse.ArgumentTypeError):
+                MODULE.run(DEVICE, now=NOW, gateway_host=host)
 
     def test_unrenewed_profile_backs_off_until_it_expires(self):
         self.profile("current.mobileprovision", NOW + 3600)

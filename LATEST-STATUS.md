@@ -1,6 +1,6 @@
-# November 25, 2026 — TradePilot opens on the USB iPhone
+# November 25, 2026 — USB iPhone connects to the home PC
 
-Developer trust is confirmed, and TradePilot 0.5.2 opens on the physical USB iPhone. The app imported the Windows gateway address and the exact pinned certificate. It displays **Server unavailable** while Tailscale is missing from this phone. Install Tailscale and connect it to the PC's private network before verifying the phone route. The Windows gateway remains reachable from the Mac.
+TradePilot 0.5.2 on the physical USB iPhone completed its authenticated **Test connection** over Tailscale and loaded the saved paper portfolio from the Windows gateway. Windows observed the phone's Tailscale connection on the gateway service and restricts access to the Mac and that phone. The local development build uses a transport setting scoped to the PC's hostname and still requires HTTPS, hostname validation and the exact paired certificate. Live Webull orders displayed **Off**.
 
 # November 24, 2026 — gateway rechecked and iPhone signing renewed
 
